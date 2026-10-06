@@ -7,7 +7,9 @@
 [![License](https://img.shields.io/github/license/ariesworx/beads-remote)](LICENSE)
 
 Connect a repository to its database on a shared [beads](https://github.com/gastownhall/beads)
-(`bd`) server over a pinned SSH tunnel, and provision that server.
+(`bd`) server over a pinned SSH tunnel, and provision that server. beads
+stores its issues in [Dolt](https://github.com/dolthub/dolt), a SQL database
+with Git-style version control; the server runs `dolt sql-server`.
 
 ```text
 your machine                              beads server   (firewall: 22/tcp only)
@@ -23,7 +25,8 @@ and `--json` gives agents a single document, so it fits into scripts and agent
 workflows.
 
 > beads-remote is an independent tool. It is not part of, or endorsed by,
-> the beads or Dolt projects.
+> the [beads](https://github.com/gastownhall/beads) or
+> [Dolt](https://github.com/dolthub/dolt) projects.
 
 ## Install
 
@@ -45,6 +48,40 @@ gh attestation verify beads-remote_*.tar.gz --repo ariesworx/beads-remote
 ```
 
 You also need `bd` and OpenSSH on your PATH.
+
+## Quick start
+
+Three cases, from nothing to an agent using bd.
+
+**The repository already has `.beads/remote.yaml`** (someone set it up):
+
+```sh
+go install github.com/ariesworx/beads-remote@latest
+beads-remote setup      # pick or create a key, pin the server, connect
+```
+
+If `setup` says the server does not know your key, send the admin the command
+it prints, wait for them to run it, then run `beads-remote up`. When
+`beads-remote check` ends with `beads ok`, `bd ready` works.
+
+**The repository has no `remote.yaml` yet** and the server exists: an admin
+runs `init` and `server provision` (see [Admin](#admin-add-a-database-and-developers)),
+commits `.beads/remote.yaml`, and developers follow the case above. The file
+holds no secrets:
+
+```yaml
+server:
+  host: beads.example.com
+  host_key: SHA256:…          # the server's ED25519 fingerprint, pinned
+  admin: you@beads.example.com # only for `server` commands
+database: myproject
+port: 3311                    # local end of the tunnel; one per repository
+```
+
+**There is no server yet:** see [Build a server](#build-a-server).
+
+Then give your agent the issues: add the MCP server (next section). Its tools
+open the tunnel themselves.
 
 ## Developer: connect a repository
 
@@ -75,6 +112,61 @@ names the same server, `down` is fine when nothing is up, `add-key` replaces
 rather than duplicates, `revoke` of a key that is already gone warns and
 succeeds, and `deploy/bootstrap.sh` rewrites, reloads and restarts only what
 changed. The tests run each command twice and compare the files it manages.
+
+## Agents: MCP server
+
+`beads-remote mcp` gives an MCP client this repository's issues, over stdio:
+
+| Tool | Does |
+|---|---|
+| `ready` | Open issues with nothing blocking them, highest priority first |
+| `list` | Issues filtered by status, type, priority, assignee, labels or title |
+| `show` | One issue in full, with its dependencies |
+| `create` | A new issue; returns its id |
+| `claim` | Assign an issue to yourself and mark it `in_progress` |
+| `update` | Change status, priority, assignee, title, text or labels |
+| `close`, `reopen` | Finish an issue, or undo that |
+| `dep` | Record that one issue depends on another |
+| `comment`, `comments`, `note` | Add a comment, read them, append to notes |
+| `blocked`, `stats` | What is waiting on what; counts by status |
+
+Every tool opens the SSH tunnel first if it is down, so an agent never runs
+`up`, and needs no shell. Each runs `bd --json` in the repository and returns
+typed results; lists carry only id, title, status, priority, type, assignee
+and labels, and `show` has the rest. Arguments are checked against the input
+schema (types, priorities 0 to 4, allowed statuses) before bd runs, and text
+is passed so that it can never be read as a flag.
+
+It runs on your machine as you, with the same key, pinned host key and cached
+password as the CLI, so there is nothing new to sign in to. A key with a
+passphrase must be in ssh-agent, as for `up`. There is deliberately nothing
+that deletes or repairs issues, re-initializes the repository (`bd init`) or
+runs the `server` commands; those stay at the terminal.
+
+The tools are a Go port of the issue tools in
+[beads-mcp](https://github.com/gastownhall/beads/tree/main/integrations/beads-mcp)
+(MIT), checked against bd 1.2.2.
+
+Run `beads-remote setup` at a terminal first; the MCP server cannot answer its
+questions. Then register it with your client:
+
+| Client | Configuration |
+|---|---|
+| Claude Code, per repository | `.mcp.json`: `{ "mcpServers": { "beads": { "command": "beads-remote", "args": ["mcp"] } } }`, or `claude mcp add --scope project beads -- beads-remote mcp` |
+| Codex CLI | `~/.codex/config.toml`: `[mcp_servers.beads]` with `command = "beads-remote"` and `args = ["mcp"]` |
+| Gemini CLI | `.gemini/settings.json`: the same `mcpServers` object as `.mcp.json` |
+| Claude desktop, other clients | Their MCP config, with the repository named: `"args": ["-C", "/path/to/repo", "mcp"]` |
+
+Two things trip people up:
+
+- **PATH.** `go install` puts the binary in `$(go env GOPATH)/bin`. A client
+  launched from a dock or menu may not have that on its PATH; use the absolute
+  path as `command`.
+- **Working directory.** The server finds `.beads/remote.yaml` from the
+  directory it starts in. A client that starts servers elsewhere needs `-C`.
+
+In Claude Code, `/mcp` shows whether `beads` connected and lists its tools.
+`test/mcpe2e` drives the server the way a client does.
 
 ## Admin: add a database and developers
 

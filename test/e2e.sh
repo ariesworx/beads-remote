@@ -12,6 +12,7 @@
 set -euo pipefail
 
 BIN=$(cd "$(dirname "$1")" && pwd)/$(basename "$1")
+HERE=$(cd "$(dirname "$0")/.." && pwd)
 [ "$(id -u)" = 0 ] || { echo "run as root on a disposable machine" >&2; exit 2; }
 for t in dolt bd sshd sudo python3 git ssh-keygen; do command -v "$t" >/dev/null || { echo "missing: $t" >&2; exit 2; }; done
 for u in beadse2e beadsadmin; do ! id "$u" >/dev/null 2>&1 || { echo "account $u exists from an earlier run; remove it first" >&2; exit 2; }; done
@@ -161,6 +162,11 @@ expect "one key on the server" test "$(grep -c ssh-ed25519 "/home/$DB/.ssh/autho
 expect "setup" br setup --yes
 expect "check" br check
 expect "check --json says ok" sh -c "'$BIN' -C '$WORK/repo' check --json | python3 -c 'import json,sys; sys.exit(0 if json.load(sys.stdin)[\"ok\"] else 1)'"
+# The MCP server over real stdio, from a closed tunnel: the first tool call
+# must open it.
+(cd "$HERE" && go build -o "$WORK/mcpe2e" ./test/mcpe2e)
+expect "mcp: create, ready, claim, close, comment with the tunnel closed" sh -c "'$BIN' -C '$WORK/repo' down && '$WORK/mcpe2e' '$BIN' '$WORK/repo'"
+expect "and the tunnel is up after it" br status
 expect "bd creates an e2e- issue on the server" sh -c "cd '$WORK/repo' && bd create 'e2e round trip' -t task -p 4 --json | grep -q '\"id\": *\"e2e-'"
 expect "the issue is in the server database" python3 - "/etc/$DB/db-password" <<PY
 import pymysql, sys

@@ -53,6 +53,12 @@ type Result struct {
 	Fix    string `json:"fix,omitempty"`
 }
 
+// Report is the document every command prints with --json.
+type Report struct {
+	OK      bool     `json:"ok" jsonschema:"true when every check passed"`
+	Results []Result `json:"results" jsonschema:"checks and steps; each failure has a fix"`
+}
+
 // report collects results. Failures and warnings print as they happen;
 // passes print only when verbose; JSON mode prints one document at the end.
 type report struct {
@@ -123,10 +129,7 @@ func (r *report) finish(okLine string) int {
 	if r.env.JSON {
 		enc := json.NewEncoder(r.env.Out)
 		enc.SetIndent("", "  ")
-		_ = enc.Encode(struct {
-			OK      bool     `json:"ok"`
-			Results []Result `json:"results"`
-		}{n == 0, r.results})
+		_ = enc.Encode(Report{OK: n == 0, Results: r.results})
 	} else if n == 0 {
 		r.line("✓", "32", Result{Name: okLine})
 	} else {
