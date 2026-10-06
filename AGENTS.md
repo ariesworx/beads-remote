@@ -52,8 +52,9 @@ a throwaway VM or container only, never on a workstation. CI runs all of it.
    `fix:` the user can run.
 6. **Go:** standard library first; a new dependency needs a reason in the PR.
    `gofmt`/`goimports`, table-driven tests, errors wrapped with `%w`, no
-   panics beyond `regexp.MustCompile` on constant patterns. Nothing in `internal/` writes to `os.Stdout` or
-   reads `os.Stdin`; use the `Env` it is given.
+   panics beyond `regexp.MustCompile` on constant patterns. Nothing in `internal/` writes to `os.Stdout` or reads
+   `os.Stdin`, except the interactive `ssh-keygen` and `ssh-add` in `setup`;
+   use the `Env` it is given.
 7. **Shell:** `set -euo pipefail` (`server.sh` omits `-e` on purpose, so it
    can report every step), shellcheck-clean, and safe to re-run.
 
