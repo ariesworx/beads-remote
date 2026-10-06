@@ -128,7 +128,7 @@ is passed so that it can never be read as a flag.
 It runs on your machine as you, with the same key, pinned host key and cached
 password as the CLI, so there is nothing new to sign in to. A key with a
 passphrase must be in ssh-agent, as for `up`. There is deliberately nothing
-that deletes or repairs issues, re-initialises the repository (`bd init`) or
+that deletes or repairs issues, re-initializes the repository (`bd init`) or
 runs the `server` commands; those stay at the terminal.
 
 The tools are a Go port of the issue tools in
