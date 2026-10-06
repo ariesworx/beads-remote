@@ -7,7 +7,7 @@ permissions:
   contents: read
 concurrency:
   group: ci-${{ github.ref }}
-  # Superseded pull request runs are cancelled; runs on main always finish.
+  # Superseded pull request runs are canceled; runs on main always finish.
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:

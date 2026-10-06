@@ -38,6 +38,6 @@ approach before you write it. Security problems go through
   machines. Every failure carries a `fix:` the user can run.
 - No secret in argv, logs or the repository.
 - Every value sent to the server is validated against a strict pattern.
-- Nothing organisation-specific (hosts, fingerprints, paths) in code or tests.
+- Nothing organization-specific (hosts, fingerprints, paths) in code or tests.
 
 By contributing you agree that your contribution is licensed under Apache-2.0.
