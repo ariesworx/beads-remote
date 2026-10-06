@@ -21,7 +21,9 @@ linters:
     rules:
       # G304 (file path from a variable) and G204 (command with variable
       # arguments) are this tool's job: paths come from validated config and
-      # commands are fixed program names with argv, never a shell string.
+      # commands are fixed program names with argv. The one shell program,
+      # the server script sent to `sudo bash -s`, is built only from values
+      # Config.Validate has matched against strict patterns.
       - linters: [gosec]
         text: "G(304|204)"
       # Tests run stub programs and write fixtures on purpose.

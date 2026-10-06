@@ -7,7 +7,8 @@ permissions:
   contents: read
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  # Superseded pull request runs are cancelled; runs on main always finish.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   DOLT_VERSION: 2.4.2
@@ -29,7 +30,7 @@ jobs:
         with:
           version: v2.14.0
       - name: govulncheck
-        run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.8.0 ./...
       - name: shellcheck
         run: |
           shellcheck internal/remote/server.sh deploy/bootstrap.sh test/*.sh
@@ -64,18 +65,24 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
+      # bootstrap-e2e leaves Dolt to deploy/bootstrap.sh, so its own pinned
+      # download and checksum are tested too.
       - name: Install dolt, bd and sshd
+        env:
+          SUITE: ${{ matrix.suite }}
         run: |
           sudo apt-get update -q
           sudo apt-get install -yq --no-install-recommends openssh-server python3-pymysql
           sudo systemctl disable --now ssh.socket ssh.service mysql.service 2>/dev/null || true
           cd "$RUNNER_TEMP"
-          curl -fsSL -o dolt.tgz "https://github.com/dolthub/dolt/releases/download/v${DOLT_VERSION}/dolt-linux-amd64.tar.gz"
-          echo "${DOLT_SHA256}  dolt.tgz" | sha256sum -c -
-          tar xzf dolt.tgz && sudo install -m 0755 dolt-linux-amd64/bin/dolt /usr/local/bin/dolt
+          if [ "$SUITE" = e2e ]; then
+            curl -fsSL -o dolt.tgz "https://github.com/dolthub/dolt/releases/download/v${DOLT_VERSION}/dolt-linux-amd64.tar.gz"
+            echo "${DOLT_SHA256}  dolt.tgz" | sha256sum -c -
+            tar xzf dolt.tgz && sudo install -m 0755 dolt-linux-amd64/bin/dolt /usr/local/bin/dolt
+            sudo HOME=/root dolt config --global --add metrics.disabled true
+          fi
           curl -fsSL -o bd.tgz "https://github.com/gastownhall/beads/releases/download/v${BD_VERSION}/beads_${BD_VERSION}_linux_amd64.tar.gz"
           echo "${BD_SHA256}  bd.tgz" | sha256sum -c -
           mkdir bd && tar xzf bd.tgz -C bd && sudo install -m 0755 "$(find bd -type f -name bd | head -1)" /usr/local/bin/bd
-          sudo HOME=/root dolt config --global --add metrics.disabled true
       - run: go build -o beads-remote .
       - run: sudo env "PATH=$PATH" test/${{ matrix.suite }}.sh ./beads-remote
