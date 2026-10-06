@@ -47,6 +47,9 @@ grep -Eq '^(ssh-|sk-|ecdsa-)' "$admin_home/.ssh/authorized_keys" 2>/dev/null ||
 # beads-remote server command fails.
 sudo -n -u "$ADMIN_USER" sudo -n true 2>/dev/null || die "$ADMIN_USER needs passwordless sudo"
 umask 022
+# Dolt reads .dolt/ in the working directory, and the service account may not
+# be able to enter the one this was started from.
+cd /
 
 # ── Packages ────────────────────────────────────────────────────────────────
 export DEBIAN_FRONTEND=noninteractive
