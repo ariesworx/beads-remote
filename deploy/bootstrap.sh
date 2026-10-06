@@ -239,7 +239,8 @@ cat > /usr/local/sbin/dolt-backup.sh <<'SCRIPT'
 #   dolt-backup.sh fs     archive of /var/lib/dolt (stops Dolt briefly)
 #   dolt-backup.sh dump   gzipped SQL per database (Dolt keeps running)
 # Uploads to $BACKUP_REMOTE with rclone; the bucket's lifecycle rules expire
-# old copies. Two local copies of each kind are kept in /var/backups/dolt.
+# old copies. The upload credentials may only write (no list, read or
+# delete), so rclone is told not to look at the destination first. Two local copies of each kind are kept in /var/backups/dolt.
 set -euo pipefail
 umask 077
 . /etc/beads/backup.conf
@@ -249,7 +250,7 @@ stamp=$(date -u +%Y%m%dT%H%M%SZ)
 
 upload() { # file, remote dir
   [ -n "$BACKUP_REMOTE" ] || return 0
-  rclone copyto --s3-no-check-bucket "$1" "$BACKUP_REMOTE/$2/$(basename "$1")"
+  rclone copyto --s3-no-check-bucket --no-check-dest "$1" "$BACKUP_REMOTE/$2/$(basename "$1")"
 }
 prune() { ls -1t "$out"/"$1"* 2>/dev/null | tail -n +3 | xargs -r rm -f; }
 
@@ -311,7 +312,9 @@ systemctl enable --now dolt-backup-fs.timer dolt-backup-dump.timer >/dev/null 2>
 if [ -n "$BACKUP_REMOTE" ]; then
   set -a; . "$ETC/backup.env"; set +a
   probe=$(mktemp); echo "beads-remote bootstrap $(date -u +%FT%TZ)" > "$probe"
-  if rclone copyto --s3-no-check-bucket "$probe" "$BACKUP_REMOTE/bootstrap-check.txt" 2>/dev/null; then
+  # A new name each run: write-only credentials cannot overwrite. The
+  # bucket's lifecycle rules expire checks/ after a week.
+  if rclone copyto --s3-no-check-bucket --no-check-dest "$probe" "$BACKUP_REMOTE/checks/bootstrap-$(date -u +%Y%m%dT%H%M%SZ).txt" 2>/dev/null; then
     say "backups: daily to $BACKUP_REMOTE"
   else
     printf '\033[33m!\033[0m backups: cannot write to %s; check /etc/beads/backup.env\n' "$BACKUP_REMOTE"

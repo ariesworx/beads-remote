@@ -91,7 +91,7 @@ expect "data dir is dolt 0700" test "$(stat -c '%U %a' /var/lib/dolt)" = "dolt 7
 expect "sshd: no passwords" sh -c "sshd -T -C user=$ADMIN,host=x,addr=127.0.0.1 | grep -qx 'passwordauthentication no'"
 expect "sshd: AllowUsers is the admin" grep -qx "AllowUsers $ADMIN" /etc/ssh/sshd_config.d/99-beads-hardening.conf
 expect "ufw allows 22 only" sh -c "grep -qx 'default deny incoming' '$WORK/ufw.log' && grep -qx 'limit 22/tcp' '$WORK/ufw.log'"
-expect "backup reached the remote at bootstrap" test -s "$WORK/backups/bootstrap-check.txt"
+expect "backup reached the remote at bootstrap" sh -c "ls '$WORK/backups/checks/'bootstrap-*.txt"
 
 # ── The real sshd, with the configuration bootstrap wrote ───────────────────
 mkdir -p /run/sshd

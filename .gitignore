@@ -8,3 +8,5 @@
 !*.tfvars.example
 crash.log
 __pycache__/
+# Provider lock files are generated per user by tofu init (see deploy/README.md).
+.terraform.lock.hcl

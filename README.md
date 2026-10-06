@@ -89,6 +89,11 @@ It refuses to run unless `ADMIN_USER` already has an SSH key and passwordless
 sudo, because it is about to turn passwords off. It prints the host key
 fingerprint for `remote.yaml` when it finishes.
 
+Or let OpenTofu build the whole thing on **DigitalOcean**, **Google Cloud** or
+**AWS**: the machine, a firewall, a backup bucket the server can write but not
+read, and a host key generated in advance so its fingerprint is known before
+the server boots. See [`deploy/README.md`](deploy/README.md).
+
 ## Security model
 
 - **The host key is pinned.** beads-remote keeps its own `known_hosts` under
