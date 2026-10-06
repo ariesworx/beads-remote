@@ -4,10 +4,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"net"
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -110,8 +112,20 @@ func fingerprints(keys string) []string {
 // must not be able to move developers to another server silently.
 func (e Env) pinHostKey(r *report, c *Config) bool {
 	const name = "server host key pinned"
+	prev, err := e.repoServer()
+	if err != nil {
+		return r.fail(name, err.Error(), "check permissions on "+e.stateDir())
+	}
+	if prev != "" && prev != c.Server.Host && !e.Repin {
+		return r.fail(name, fmt.Sprintf("%s now points this repository at %s, but it used %s", ConfigFile, c.Server.Host, prev),
+			"if your server admin confirms the move out of band: beads-remote up --repin")
+	}
 	var others, mine []string
-	if b, err := os.ReadFile(e.knownHosts()); err == nil {
+	b, err := os.ReadFile(e.knownHosts())
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return r.fail(name, err.Error(), "check permissions on "+e.knownHosts())
+	}
+	if err == nil {
 		for _, line := range strings.Split(strings.TrimSpace(string(b)), "\n") {
 			if f := strings.Fields(line); len(f) > 1 && hostListed(f[0], c.Server.Host) {
 				mine = append(mine, line)
@@ -123,6 +137,9 @@ func (e Env) pinHostKey(r *report, c *Config) bool {
 	pinned := fingerprints(strings.Join(mine, "\n"))
 	for _, f := range pinned {
 		if f == c.Server.HostKey {
+			if err := e.recordRepoServer(c); err != nil {
+				return r.fail(name, err.Error(), "check permissions on "+e.stateDir())
+			}
 			return r.ok(name, c.Server.HostKey)
 		}
 	}
@@ -163,10 +180,50 @@ func (e Env) pinHostKey(r *report, c *Config) bool {
 	if err := writePrivate(e.knownHosts(), []byte(strings.Join(append(others, keep...), "\n")+"\n")); err != nil {
 		return r.fail(name, err.Error(), "check permissions on "+e.stateDir())
 	}
+	if err := e.recordRepoServer(c); err != nil {
+		return r.fail(name, err.Error(), "check permissions on "+e.stateDir())
+	}
+	if prev != "" && prev != c.Server.Host {
+		return r.ok(name, "moved this repository from "+prev+" to "+c.Server.Host+", "+c.Server.HostKey)
+	}
 	if len(pinned) > 0 {
 		return r.ok(name, "re-pinned "+c.Server.Host+" to "+c.Server.HostKey)
 	}
 	return r.ok(name, c.Server.HostKey)
+}
+
+// repoServer returns the server this repository last connected to, so that
+// a remote.yaml naming a different host (with a key to match) is refused
+// like a changed key is. Empty when the repository is new to this user.
+func (e Env) repoServer() (string, error) {
+	b, err := os.ReadFile(e.serversFile())
+	if errors.Is(err, fs.ErrNotExist) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	for _, line := range strings.Split(string(b), "\n") {
+		if repo, host, ok := strings.Cut(line, "\t"); ok && repo == e.RepoRoot {
+			return host, nil
+		}
+	}
+	return "", nil
+}
+
+func (e Env) recordRepoServer(c *Config) error {
+	b, err := os.ReadFile(e.serversFile())
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return err
+	}
+	var lines []string
+	for _, line := range strings.Split(strings.TrimSpace(string(b)), "\n") {
+		if repo, _, ok := strings.Cut(line, "\t"); ok && repo != e.RepoRoot {
+			lines = append(lines, line)
+		}
+	}
+	lines = append(lines, e.RepoRoot+"\t"+c.Server.Host)
+	return writePrivate(e.serversFile(), []byte(strings.Join(lines, "\n")+"\n"))
 }
 
 // hostListed reports whether a known_hosts name list names host on any port.
@@ -552,15 +609,26 @@ func (e Env) check(r *report, c *Config) {
 			r.fail("ssh key", id+" is readable by others", "chmod 600 "+id)
 		}
 	}
-	pinned := false
+	var mine []string
 	if b, err := os.ReadFile(e.knownHosts()); err == nil {
-		for _, f := range fingerprints(string(b)) {
-			pinned = pinned || f == c.Server.HostKey
+		for _, line := range strings.Split(string(b), "\n") {
+			if f := strings.Fields(line); len(f) > 1 && hostListed(f[0], c.Server.Host) {
+				mine = append(mine, line)
+			}
 		}
 	}
-	if pinned {
+	pinned := fingerprints(strings.Join(mine, "\n"))
+	prev, _ := e.repoServer()
+	switch {
+	case prev != "" && prev != c.Server.Host:
+		r.fail("server host key pinned", fmt.Sprintf("%s now points this repository at %s, but it used %s", ConfigFile, c.Server.Host, prev),
+			"if your server admin confirms the move out of band: beads-remote up --repin")
+	case slices.Contains(pinned, c.Server.HostKey):
 		r.ok("server host key pinned", c.Server.HostKey)
-	} else {
+	case len(pinned) > 0:
+		r.fail("server host key pinned", fmt.Sprintf("%s now names %s for %s, but you pinned %s", ConfigFile, c.Server.HostKey, c.Server.Host, strings.Join(pinned, ", ")),
+			"if your server admin confirms the new key out of band: beads-remote up --repin")
+	default:
 		r.fail("server host key pinned", "not yet", "beads-remote up")
 	}
 	up := e.healthy(c)

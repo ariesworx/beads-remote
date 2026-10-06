@@ -109,13 +109,15 @@ the server boots. See [`deploy/README.md`](deploy/README.md).
   MySQL user, granted on that one schema only; it cannot list other databases.
 - **Database logins cannot touch the server's files.** Dolt otherwise lets any
   login use `LOAD_FILE` and `INTO OUTFILE` whatever its grants; the bootstrap
-  sets `secure_file_priv`, and `server check` fails if a login can read a file.
-- **A changed host key in `remote.yaml` is refused** once you have pinned the
-  old one, so a pull request cannot quietly point developers at another
-  server. Confirm the new fingerprint with the admin, then `up --repin`.
-- **Revoking is deleting a key line**, chosen by exact fingerprint, key or
-  comment, never a substring. The password grants nothing without a
-  key, so it need not change.
+  sets `secure_file_priv`, and `server check` fails unless it is NULL or a
+  path that does not exist, or if a login can read or write a file.
+- **A changed host or host key in `remote.yaml` is refused** once you have
+  connected, so a pull request cannot quietly point developers at another
+  server. Confirm the new server with the admin, then `up --repin`.
+- **Revoking deletes every line carrying the key**, chosen by exact
+  fingerprint, key or comment, never a substring; a comment shared by two
+  keys is refused. The password grants nothing without a key, so it need
+  not change.
 - **Secrets stay out of argv and the repository.** The password is cached at
   `~/.config/beads-remote/<db>@<host>.pw` (0600) and written to bd's
   credentials file; it is passed to child processes through the environment.

@@ -127,7 +127,7 @@ br() { "$BIN" -C "$WORK/repo" "$@"; }
 refuse "server check fails before provisioning" br server check
 # Dolt's default lets any login read server files; provision must refuse it.
 refuse "provision refuses a Dolt that leaks files" br server provision
-expect "and says why" sh -c "'$BIN' -C '$WORK/repo' server provision | grep -q 'file access: .*can read files'"
+expect "and says why" sh -c "'$BIN' -C '$WORK/repo' server provision | grep -q 'file access: .*can read and write any file'"
 kill "$DOLT_PID"; wait "$DOLT_PID" 2>/dev/null || true
 printf 'listener:\n  host: 127.0.0.1\n  port: 3306\nsystem_variables:\n  secure_file_priv: /nonexistent-beads\n' > "$WORK/dolt.yaml"
 (cd "$WORK/dolt/data" && exec dolt sql-server --config "$WORK/dolt.yaml" >> "$WORK/dolt.log" 2>&1) &
@@ -205,7 +205,11 @@ expect "key line forced again" grep -q '^command="cat /etc/beadse2e/db-password"
 expect "down" br down
 refuse "revoke by a shared substring is refused" br server revoke port-forwarding
 expect "and removed nothing" test "$(grep -c ssh-ed25519 "/home/$DB/.ssh/authorized_keys")" = 1
+# The same key under a second comment must not survive revoking the first.
+dup=$(sed -n '/ dev@e2e$/{s/ dev@e2e$/ dev@other/;p}' "/home/$DB/.ssh/authorized_keys")
+printf '%s\n' "$dup" >> "/home/$DB/.ssh/authorized_keys"
 expect "server revoke" br server revoke dev@e2e
+expect "and every line with that key went" test "$(grep -c ssh-ed25519 "/home/$DB/.ssh/authorized_keys")" = 0
 rm -f "$HOME/.config/beads-remote/$DB@127.0.0.1.pw"
 refuse "a revoked key cannot connect" br up
 

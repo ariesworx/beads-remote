@@ -169,34 +169,70 @@ add_key() {
   res ok "add key" "$(printf '%s\n' "$KEY" | ssh-keygen -lf - | awk '{ print $2, $3 }'); $(grep -cEv '^[[:space:]]*(#|$)' "$ak") key(s) now"
 }
 
+# key_of LINE prints "fingerprint<TAB>blob<TAB>comment" for an authorized_keys
+# line, options and all, or nothing when ssh-keygen cannot read it. The key is
+# the type token whose "type blob" pair has the line's own fingerprint, so a
+# key type quoted inside an option is never mistaken for the key.
+key_of() {
+  local line=$1 fp i
+  fp=$(printf '%s\n' "$line" | ssh-keygen -lf - 2>/dev/null | awk '{ print $2 }')
+  [ -n "$fp" ] || return 0
+  local -a f; read -r -a f <<< "$line"
+  for ((i = 0; i + 1 < ${#f[@]}; i++)); do
+    [[ ${f[i]} =~ ^(ssh-ed25519|sk-ssh-ed25519@openssh\.com|ssh-rsa|ecdsa-sha2-nistp(256|384|521)|sk-ecdsa-sha2-nistp256@openssh\.com)$ ]] || continue
+    if [ "$(printf '%s %s\n' "${f[i]}" "${f[i+1]}" | ssh-keygen -lf - 2>/dev/null | awk '{ print $2 }')" = "$fp" ]; then
+      printf '%s\t%s\t%s\n' "$fp" "${f[i+1]}" "${f[*]:i+2}"
+      return 0
+    fi
+  done
+}
+
 # Removes the keys whose fingerprint (SHA256:...), base64 blob or whole
 # comment equals PATTERN exactly. Never a substring: every line shares the
-# same options, so a loose match could remove every key at once.
+# same options, so a loose match could remove every key at once. Every line
+# carrying a matched key goes, so a duplicate under another comment cannot
+# keep it authorized. A comment is the developer's own choice, so one that
+# names more than one key is refused in favour of a fingerprint.
 revoke() {
   local home ak; home=$(home_of "$DB"); ak="$home/.ssh/authorized_keys"
   [ -s "$ak" ] || { res fail "revoke" "no keys" ""; return 1; }
-  local tmp removed=() kept=0 line key fp blob comment
-  tmp=$(mktemp)
+  local -a lines=() blobs=()
+  local -A hit=() by_comment=() names=()
+  local line k fp blob comment n=0
   while IFS= read -r line || [ -n "$line" ]; do
-    if [[ $line =~ ^[[:space:]]*(#|$) ]]; then printf '%s\n' "$line" >> "$tmp"; continue; fi
-    key=$(printf '%s\n' "$line" | awk '{ for (i = 1; i <= NF; i++) if ($i ~ /^(ssh-|sk-|ecdsa-)/) { s = $i; for (j = i + 1; j <= NF; j++) s = s " " $j; print s; exit } }')
-    blob=$(printf '%s\n' "$key" | awk '{ print $2 }')
-    comment=$(printf '%s\n' "$key" | cut -s -d' ' -f3-)
-    fp=$(printf '%s\n' "$key" | ssh-keygen -lf - 2>/dev/null | awk '{ print $2 }')
-    if [ -n "$key" ] && { [ "$PATTERN" = "$fp" ] || [ "$PATTERN" = "$blob" ] || [ "$PATTERN" = "$comment" ]; }; then
-      removed+=("$fp${comment:+ $comment}")
-    else
-      printf '%s\n' "$line" >> "$tmp"; kept=$((kept + 1))
+    line=${line%$'\r'}
+    lines+=("$line"); blobs+=("")
+    n=$((n + 1))
+    [[ $line =~ ^[[:space:]]*(#|$) ]] && continue
+    k=$(key_of "$line")
+    if [ -z "$k" ]; then
+      res warn "revoke" "line $n is not a key ssh-keygen can read; left in place" "inspect $ak"
+      continue
     fi
+    IFS=$'\t' read -r fp blob comment <<< "$k"
+    blobs[n-1]=$blob
+    names[$blob]=$fp${comment:+ $comment}
+    if [ "$PATTERN" = "$fp" ] || [ "$PATTERN" = "$blob" ]; then hit[$blob]=1
+    elif [ "$PATTERN" = "$comment" ]; then by_comment[$blob]=1; fi
   done < "$ak"
-  if [ ${#removed[@]} -eq 0 ]; then
-    rm -f "$tmp"
+  if [ ${#by_comment[@]} -gt 1 ]; then
+    res fail "revoke" "${#by_comment[@]} different keys have the comment $PATTERN" "revoke by fingerprint: beads-remote server keys"
+    return 1
+  fi
+  for k in "${!by_comment[@]}"; do hit[$k]=1; done
+  if [ ${#hit[@]} -eq 0 ]; then
     res fail "revoke" "no key's fingerprint, blob or comment is exactly $PATTERN" "beads-remote server keys"
     return 1
   fi
+  local tmp kept=0 removed=0 i; tmp=$(mktemp)
+  for i in "${!lines[@]}"; do
+    if [ -n "${blobs[i]}" ] && [ -n "${hit[${blobs[i]}]:-}" ]; then removed=$((removed + 1)); continue; fi
+    printf '%s\n' "${lines[i]}" >> "$tmp"
+    if [ -n "${blobs[i]}" ]; then kept=$((kept + 1)); fi
+  done
   install -o "$DB" -g "$DB" -m 0600 "$tmp" "$ak"; rm -f "$tmp"
-  local k; for k in "${removed[@]}"; do res ok "revoked" "$k"; done
-  res ok "revoke" "${#removed[@]} removed, $kept left; no password change needed"
+  for k in "${!hit[@]}"; do res ok "revoked" "${names[$k]}"; done
+  res ok "revoke" "$removed line(s) removed, $kept key line(s) left; no password change needed"
 }
 
 keys() {

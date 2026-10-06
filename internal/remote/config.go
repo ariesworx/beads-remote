@@ -53,8 +53,8 @@ type Config struct {
 
 var (
 	nameRE = regexp.MustCompile(`^[a-z][a-z0-9_]{0,30}$`)
-	hostRE = regexp.MustCompile(`^[A-Za-z0-9.-]{1,253}$`)
-	destRE = regexp.MustCompile(`^([a-z_][a-z0-9_-]{0,31}@)?[A-Za-z0-9.-]{1,253}$`)
+	hostRE = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9.-]{0,252}$`) // no leading "-": ssh would read it as an option
+	destRE = regexp.MustCompile(`^([a-z_][a-z0-9_-]{0,31}@)?[A-Za-z0-9][A-Za-z0-9.-]{0,252}$`)
 	pathRE = regexp.MustCompile(`^/[A-Za-z0-9/._-]+$`)
 	fprRE  = regexp.MustCompile(`^SHA256:[A-Za-z0-9+/]{43}$`)
 )

@@ -156,14 +156,12 @@ func TestConfigValidation(t *testing.T) {
 		"privileged port":     strings.Replace(good, "port: 3312", "port: 80", 1),
 		"path traversal":      good + "paths:\n  password_file: /etc/../root/x\n",
 		"space in path":       good + "paths:\n  sshd_config: /etc/ssh/a b\n",
-		"admin with command":  strings.Replace(good, "port: 3312", "port: 3312\n", 1) + "", // placeholder kept valid below
+		"host as ssh option":  strings.Replace(good, "host: beads.example.com", "host: -Jevil.example", 1),
+		"admin as ssh option": good[:strings.Index(good, "database")] + "  admin: -Jevil.example\n" + good[strings.Index(good, "database"):],
 		"admin shell chars":   good[:strings.Index(good, "database")] + "  admin: root@x;id\n" + good[strings.Index(good, "database"):],
 		"prefix with space":   good + "prefix: \"h q\"\n",
 		"missing fingerprint": strings.Replace(good, "  host_key: SHA256:et6CqkKsyU2BxzA7Ws+V18rXrtM9Gj6dk1/m0C5TqvU\n", "", 1),
 	} {
-		if name == "admin with command" {
-			continue
-		}
 		if _, err := Parse([]byte(bad)); err == nil {
 			t.Errorf("%s: accepted", name)
 		}
@@ -560,4 +558,27 @@ func TestChangedConfigKeyNeedsRepin(t *testing.T) {
 	if !strings.Contains(kh, other) {
 		t.Error("--repin dropped another server's pin")
 	}
+}
+
+func TestChangedConfigHostNeedsRepin(t *testing.T) {
+	f := newFixture(t)
+	wantCode(t, Up(f.cfg, f.env()), 0, f.out.String())
+
+	// A pull request moves the repository to another host, with a key that
+	// host really presents. Without --repin that is refused.
+	f.cfg.Server.Host = "elsewhere.example.org"
+	must(t, os.Remove(filepath.Join(f.state, "up")))
+	wantCode(t, Up(f.cfg, f.env()), 1, f.out.String())
+	if out := f.out.String(); !strings.Contains(out, "but it used beads.example.com") || !strings.Contains(out, "--repin") {
+		t.Errorf("changed config host not refused with a way forward:\n%s", out)
+	}
+	if fileExists(filepath.Join(f.state, "up")) {
+		t.Error("tunnel opened to an unconfirmed host")
+	}
+	wantCode(t, Check(f.cfg, f.env()), 1, f.out.String())
+
+	e := f.env()
+	e.Repin = true
+	wantCode(t, Up(f.cfg, e), 0, f.out.String())
+	wantCode(t, Up(f.cfg, f.env()), 0, f.out.String())
 }

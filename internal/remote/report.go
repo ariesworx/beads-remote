@@ -20,12 +20,13 @@ type Env struct {
 	JSON     bool // one JSON document instead of lines, for agents
 	Verbose  bool // print passing lines too
 	Yes      bool // accept every default without asking
-	Repin    bool // accept a changed server host key in the config
+	Repin    bool // accept a changed server host or host key in the config
 }
 
 // State lives outside the repository, per user.
 func (e Env) stateDir() string     { return filepath.Join(e.Home, ".config", "beads-remote") }
 func (e Env) knownHosts() string   { return filepath.Join(e.stateDir(), "known_hosts") }
+func (e Env) serversFile() string  { return filepath.Join(e.stateDir(), "servers") }
 func (e Env) identityFile() string { return filepath.Join(e.stateDir(), "identity") }
 func (e Env) socket(c *Config) string {
 	return filepath.Join(e.stateDir(), "cm-"+c.Database+"@"+c.Server.Host)
