@@ -28,7 +28,7 @@ Developer:
   down                   close the tunnel
   status                 is the tunnel up? (exit 1 if not)
   check                  verify the whole setup, read-only
-  mcp                    serve status, check, up and down to an MCP client on stdio
+  mcp                    serve this repository's issues to an MCP client on stdio
 
 Server admin (needs ssh to server.admin with passwordless sudo):
   server provision       create or repair this repository's database, account and grants

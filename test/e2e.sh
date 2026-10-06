@@ -162,8 +162,10 @@ expect "one key on the server" test "$(grep -c ssh-ed25519 "/home/$DB/.ssh/autho
 expect "setup" br setup --yes
 expect "check" br check
 expect "check --json says ok" sh -c "'$BIN' -C '$WORK/repo' check --json | python3 -c 'import json,sys; sys.exit(0 if json.load(sys.stdin)[\"ok\"] else 1)'"
-# The MCP server over real stdio answers with the same results as --json.
-expect "mcp: down, status, up, status over stdio" python3 "$HERE/test/mcp_client.py" "$BIN" "$WORK/repo" down=ok status=fail up=ok status=ok
+# The MCP server over real stdio, from a closed tunnel: the first tool call
+# must open it.
+(cd "$HERE" && go build -o "$WORK/mcpe2e" ./test/mcpe2e)
+expect "mcp: create, ready, claim, close, comment with the tunnel closed" sh -c "'$BIN' -C '$WORK/repo' down && '$WORK/mcpe2e' '$BIN' '$WORK/repo'"
 expect "and the tunnel is up after it" br status
 expect "bd creates an e2e- issue on the server" sh -c "cd '$WORK/repo' && bd create 'e2e round trip' -t task -p 4 --json | grep -q '\"id\": *\"e2e-'"
 expect "the issue is in the server database" python3 - "/etc/$DB/db-password" <<PY

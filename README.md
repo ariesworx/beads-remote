@@ -68,8 +68,8 @@ port: 3311                    # local end of the tunnel; one per repository
 
 **There is no server yet:** see [Build a server](#build-a-server).
 
-Then give your agent the tunnel: add the MCP server (next section) and tell it
-to call `up` before using bd.
+Then give your agent the issues: add the MCP server (next section). Its tools
+open the tunnel themselves.
 
 ## Developer: connect a repository
 
@@ -103,17 +103,37 @@ changed. The tests run each command twice and compare the files it manages.
 
 ## Agents: MCP server
 
-`beads-remote mcp` serves `status`, `check`, `up` and `down` to an MCP client
-over stdio. It runs on your machine as you, with the same key, pinned host key
-and cached password as the CLI, so there is nothing new to sign in to. Results
-are the `--json` document trimmed to what needs acting on: failures and
-warnings only, each with its fix, and `ok` with an empty list when all passed.
-A failure is a tool error.
+`beads-remote mcp` gives an MCP client this repository's issues, over stdio:
 
-It deliberately offers nothing else: `setup` and `init` ask questions, `--repin`
-needs a person to confirm a fingerprint, and the `server` commands run as root
-on the server. Those stay at the terminal. A key with a passphrase must be in
-ssh-agent, as for `up`.
+| Tool | Does |
+|---|---|
+| `ready` | Open issues with nothing blocking them, highest priority first |
+| `list` | Issues filtered by status, type, priority, assignee, labels or title |
+| `show` | One issue in full, with its dependencies |
+| `create` | A new issue; returns its id |
+| `claim` | Assign an issue to yourself and mark it `in_progress` |
+| `update` | Change status, priority, assignee, title, text or labels |
+| `close`, `reopen` | Finish an issue, or undo that |
+| `dep` | Record that one issue depends on another |
+| `comment`, `comments`, `note` | Add a comment, read them, append to notes |
+| `blocked`, `stats` | What is waiting on what; counts by status |
+
+Every tool opens the SSH tunnel first if it is down, so an agent never runs
+`up`, and needs no shell. Each runs `bd --json` in the repository and returns
+typed results; lists carry only id, title, status, priority, type, assignee
+and labels, and `show` has the rest. Arguments are checked against the input
+schema (types, priorities 0 to 4, allowed statuses) before bd runs, and text
+is passed so that it can never be read as a flag.
+
+It runs on your machine as you, with the same key, pinned host key and cached
+password as the CLI, so there is nothing new to sign in to. A key with a
+passphrase must be in ssh-agent, as for `up`. There is deliberately nothing
+that deletes or repairs issues, re-initialises the repository (`bd init`) or
+runs the `server` commands; those stay at the terminal.
+
+The tools are a Go port of the issue tools in
+[beads-mcp](https://github.com/gastownhall/beads/tree/main/integrations/beads-mcp)
+(MIT), checked against bd 1.2.2.
 
 Run `beads-remote setup` at a terminal first; the MCP server cannot answer its
 questions. Then register it with your client:
@@ -133,9 +153,8 @@ Two things trip people up:
 - **Working directory.** The server finds `.beads/remote.yaml` from the
   directory it starts in. A client that starts servers elsewhere needs `-C`.
 
-To try it by hand, `beads-remote mcp` reads JSON-RPC on stdin; `test/mcp_client.py`
-drives it the way a client does. In Claude Code, `/mcp` shows whether `beads`
-connected and lists its four tools.
+In Claude Code, `/mcp` shows whether `beads` connected and lists its tools.
+`test/mcpe2e` drives the server the way a client does.
 
 ## Admin: add a database and developers
 
