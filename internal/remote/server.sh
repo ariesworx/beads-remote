@@ -192,7 +192,7 @@ key_of() {
 # same options, so a loose match could remove every key at once. Every line
 # carrying a matched key goes, so a duplicate under another comment cannot
 # keep it authorized. A comment is the developer's own choice, so one that
-# names more than one key is refused in favour of a fingerprint. A pattern
+# names more than one key is refused in favor of a fingerprint. A pattern
 # that matches nothing changes nothing and succeeds, with a warning.
 revoke() {
   local home ak; home=$(home_of "$DB"); ak="$home/.ssh/authorized_keys"
