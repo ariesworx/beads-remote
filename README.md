@@ -1,7 +1,6 @@
 # beads-remote
 
 [![ci](https://github.com/ariesworx/beads-remote/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/ariesworx/beads-remote/actions/workflows/ci.yml?query=branch%3Amain)
-[![Go Report Card](https://goreportcard.com/badge/github.com/ariesworx/beads-remote)](https://goreportcard.com/report/github.com/ariesworx/beads-remote)
 [![Go Reference](https://pkg.go.dev/badge/github.com/ariesworx/beads-remote.svg)](https://pkg.go.dev/github.com/ariesworx/beads-remote)
 [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/ariesworx/beads-remote/badge)](https://scorecard.dev/viewer/?uri=github.com/ariesworx/beads-remote)
 [![Go version](https://img.shields.io/github/go-mod/go-version/ariesworx/beads-remote)](go.mod)
