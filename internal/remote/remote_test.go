@@ -582,3 +582,69 @@ func TestChangedConfigHostNeedsRepin(t *testing.T) {
 	wantCode(t, Up(f.cfg, e), 0, f.out.String())
 	wantCode(t, Up(f.cfg, f.env()), 0, f.out.String())
 }
+
+// snapshot records every file the client manages, with its mode, so a
+// repeated command can be shown to change nothing.
+func (f *fixture) snapshot() map[string]string {
+	f.t.Helper()
+	snap := map[string]string{}
+	for _, root := range []string{filepath.Join(f.home, ".config"), filepath.Join(f.repo, ".beads")} {
+		_ = filepath.WalkDir(root, func(p string, d os.DirEntry, err error) error {
+			if err != nil || d.IsDir() {
+				return err
+			}
+			info, err := d.Info()
+			if err != nil {
+				return err
+			}
+			b, _ := os.ReadFile(p)
+			snap[p] = info.Mode().String() + "\n" + string(b)
+			return nil
+		})
+	}
+	return snap
+}
+
+func sameSnapshot(t *testing.T, what string, before, after map[string]string) {
+	t.Helper()
+	for p, v := range after {
+		if before[p] != v {
+			t.Errorf("%s changed %s", what, p)
+		}
+	}
+	for p := range before {
+		if _, ok := after[p]; !ok {
+			t.Errorf("%s removed %s", what, p)
+		}
+	}
+}
+
+// Every client command can be run again: it succeeds and changes nothing.
+func TestClientCommandsIdempotent(t *testing.T) {
+	f := newFixture(t)
+	wantCode(t, Setup(f.cfg, f.env(), ""), 0, f.out.String())
+	for _, step := range []struct {
+		name string
+		run  func() int
+	}{
+		{"setup", func() int { return Setup(f.cfg, f.env(), "") }},
+		{"up", func() int { return Up(f.cfg, f.env()) }},
+		{"check", func() int { return Check(f.cfg, f.env()) }},
+		{"status", func() int { return Status(f.cfg, f.env()) }},
+		{"init", func() int { return Init(f.repo, f.env(), "", "", 0) }},
+		{"init naming the same server", func() int { return Init(f.repo, f.env(), "beads.example.com", "hq", f.cfg.Port) }},
+	} {
+		before := f.snapshot()
+		wantCode(t, step.run(), 0, f.out.String())
+		sameSnapshot(t, step.name+" again", before, f.snapshot())
+	}
+
+	wantCode(t, Down(f.cfg, f.env()), 0, f.out.String())
+	before := f.snapshot()
+	wantCode(t, Down(f.cfg, f.env()), 0, f.out.String())
+	sameSnapshot(t, "down again", before, f.snapshot())
+
+	// init never rewrites a config that names something else.
+	wantCode(t, Init(f.repo, f.env(), "elsewhere.example.org", "", 0), 1, f.out.String())
+	sameSnapshot(t, "init for another server", before, f.snapshot())
+}

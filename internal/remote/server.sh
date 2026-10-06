@@ -192,10 +192,11 @@ key_of() {
 # same options, so a loose match could remove every key at once. Every line
 # carrying a matched key goes, so a duplicate under another comment cannot
 # keep it authorized. A comment is the developer's own choice, so one that
-# names more than one key is refused in favour of a fingerprint.
+# names more than one key is refused in favour of a fingerprint. A pattern
+# that matches nothing changes nothing and succeeds, with a warning.
 revoke() {
   local home ak; home=$(home_of "$DB"); ak="$home/.ssh/authorized_keys"
-  [ -s "$ak" ] || { res fail "revoke" "no keys" ""; return 1; }
+  [ -s "$ak" ] || { res warn "revoke" "no keys; nothing to revoke" ""; return 0; }
   local -a lines=() blobs=()
   local -A hit=() by_comment=() names=()
   local line k fp blob comment n=0
@@ -220,9 +221,11 @@ revoke() {
     return 1
   fi
   for k in "${!by_comment[@]}"; do hit[$k]=1; done
+  # Revoking twice is not an error: the key is gone either way. The warning
+  # still shows a mistyped pattern for what it is.
   if [ ${#hit[@]} -eq 0 ]; then
-    res fail "revoke" "no key's fingerprint, blob or comment is exactly $PATTERN" "beads-remote server keys"
-    return 1
+    res warn "revoke" "no key's fingerprint, blob or comment is exactly $PATTERN; nothing removed" "beads-remote server keys"
+    return 0
   fi
   local tmp kept=0 removed=0 i; tmp=$(mktemp)
   for i in "${!lines[@]}"; do

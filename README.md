@@ -57,6 +57,13 @@ exact command to send to the server admin.
 `-v` also lists what passed, `--json` prints one document, `--no-color` or
 `NO_COLOR` turns colour off, and `-C DIR` runs against another repository.
 
+**Every command is idempotent.** Running one again succeeds and changes
+nothing that is already right: `init` accepts an existing `remote.yaml` that
+names the same server, `down` is fine when nothing is up, `add-key` replaces
+rather than duplicates, `revoke` of a key that is already gone warns and
+succeeds, and `deploy/bootstrap.sh` rewrites, reloads and restarts only what
+changed. The tests run each command twice and compare the files it manages.
+
 ## Admin: add a database and developers
 
 Needs an SSH login to the server with passwordless sudo (`server.admin`).
