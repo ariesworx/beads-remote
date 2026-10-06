@@ -86,3 +86,24 @@ jobs:
           mkdir bd && tar xzf bd.tgz -C bd && sudo install -m 0755 "$(find bd -type f -name bd | head -1)" /usr/local/bin/bd
       - run: go build -o beads-remote .
       - run: sudo env "PATH=$PATH" test/${{ matrix.suite }}.sh ./beads-remote
+
+  opentofu:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: opentofu/setup-opentofu@a1320f892987e89d278cc92dc5adc984fb93aca4 # v2.0.2
+        with:
+          tofu_version: 1.13.1
+          tofu_wrapper: false
+      - run: tofu fmt -check -recursive deploy
+      - name: validate
+        env:
+          TF_VAR_state_passphrase: ci-only-not-a-secret
+        run: |
+          for d in deploy/digitalocean deploy/gcp deploy/aws deploy/modules/server; do
+            tofu -chdir="$d" init -backend=false -input=false
+            tofu -chdir="$d" validate
+          done
+      - run: tofu -chdir=deploy/modules/server test

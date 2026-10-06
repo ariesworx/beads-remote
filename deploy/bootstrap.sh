@@ -58,8 +58,9 @@ for p in python3-pymysql ufw rclone unattended-upgrades curl ca-certificates; do
   dpkg -s "$p" >/dev/null 2>&1 || need+=("$p")
 done
 if [ ${#need[@]} -gt 0 ]; then
-  apt-get update -q
-  apt-get install -yq --no-install-recommends "${need[@]}"
+  # On first boot apt-daily may hold the lock; wait for it rather than fail.
+  apt-get -o DPkg::Lock::Timeout=600 update -q
+  apt-get -o DPkg::Lock::Timeout=600 install -yq --no-install-recommends "${need[@]}"
 fi
 say "packages"
 
@@ -122,6 +123,10 @@ ProtectHome=yes
 ReadWritePaths=/var/lib/dolt
 PrivateTmp=yes
 PrivateDevices=yes
+# Clients arrive over the ssh tunnel, so Dolt needs only loopback. This also
+# keeps it from the cloud metadata endpoint, which holds the host key.
+IPAddressDeny=any
+IPAddressAllow=localhost
 ProtectKernelTunables=yes
 ProtectKernelModules=yes
 ProtectControlGroups=yes
@@ -208,7 +213,10 @@ eff=$(sshd -T -C user="$ADMIN_USER",host=localhost,addr=127.0.0.1)
 for want in "passwordauthentication no" "permitrootlogin no" "kbdinteractiveauthentication no"; do
   grep -qx "$want" <<<"$eff" || die "sshd would still use '$(grep "^${want% *} " <<<"$eff")'; another drop-in overrides $SSHD_FIRST"
 done
-systemctl reload ssh 2>/dev/null || systemctl reload sshd
+# Ubuntu 24.04 starts sshd on the first connection, so on first boot it may
+# not be running yet: then there is nothing to reload, and it starts with
+# this configuration.
+systemctl try-reload-or-restart ssh.service 2>/dev/null || systemctl try-reload-or-restart sshd.service
 say "sshd: keys only, AllowUsers $(sed -n 's/^AllowUsers //p' "$SSHD_USERS")"
 
 # ── Firewall ────────────────────────────────────────────────────────────────
@@ -239,7 +247,8 @@ cat > /usr/local/sbin/dolt-backup.sh <<'SCRIPT'
 #   dolt-backup.sh fs     archive of /var/lib/dolt (stops Dolt briefly)
 #   dolt-backup.sh dump   gzipped SQL per database (Dolt keeps running)
 # Uploads to $BACKUP_REMOTE with rclone; the bucket's lifecycle rules expire
-# old copies. Two local copies of each kind are kept in /var/backups/dolt.
+# old copies. The upload credentials may only write (no list, read or
+# delete), so rclone is told not to look at the destination first. Two local copies of each kind are kept in /var/backups/dolt.
 set -euo pipefail
 umask 077
 . /etc/beads/backup.conf
@@ -249,7 +258,7 @@ stamp=$(date -u +%Y%m%dT%H%M%SZ)
 
 upload() { # file, remote dir
   [ -n "$BACKUP_REMOTE" ] || return 0
-  rclone copyto --s3-no-check-bucket "$1" "$BACKUP_REMOTE/$2/$(basename "$1")"
+  rclone copyto --s3-no-check-bucket --no-check-dest "$1" "$BACKUP_REMOTE/$2/$(basename "$1")"
 }
 prune() { ls -1t "$out"/"$1"* 2>/dev/null | tail -n +3 | xargs -r rm -f; }
 
@@ -279,7 +288,7 @@ case "${1:-}" in
       mv "$stage/$db.sql" "$f"; chown root:root "$f"; chmod 0600 "$f"
       gzip -f "$f"
       upload "$f.gz" "dumps/$db"
-      prune "$db-"
+      prune "$db-2"   # the stamp's century; "$db-" alone would let a database named dolt prune dolt-fs-*
     done
     ;;
   *) echo "usage: dolt-backup.sh fs|dump" >&2; exit 2 ;;
@@ -311,7 +320,9 @@ systemctl enable --now dolt-backup-fs.timer dolt-backup-dump.timer >/dev/null 2>
 if [ -n "$BACKUP_REMOTE" ]; then
   set -a; . "$ETC/backup.env"; set +a
   probe=$(mktemp); echo "beads-remote bootstrap $(date -u +%FT%TZ)" > "$probe"
-  if rclone copyto --s3-no-check-bucket "$probe" "$BACKUP_REMOTE/bootstrap-check.txt" 2>/dev/null; then
+  # A new name each run: write-only credentials cannot overwrite. The
+  # bucket's lifecycle rules expire checks/ after a week.
+  if rclone copyto --s3-no-check-bucket --no-check-dest "$probe" "$BACKUP_REMOTE/checks/bootstrap-$(date -u +%Y%m%dT%H%M%SZ).txt" 2>/dev/null; then
     say "backups: daily to $BACKUP_REMOTE"
   else
     printf '\033[33m!\033[0m backups: cannot write to %s; check /etc/beads/backup.env\n' "$BACKUP_REMOTE"

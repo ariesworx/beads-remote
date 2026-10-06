@@ -1,0 +1,41 @@
+#cloud-config
+# Rendered by beads-remote deploy/modules/server. Holds the server's host
+# private key and backup credentials: treat it like a secret.
+
+users:
+  - name: ${admin_user}
+    shell: /bin/bash
+    groups: [sudo]
+    sudo: "ALL=(ALL) NOPASSWD:ALL"
+    lock_passwd: true
+    ssh_authorized_keys:
+      - ${jsonencode(admin_key)}
+
+disable_root: true
+ssh_pwauth: false
+
+# Our host key replaces the image's; no other key types are generated, so the
+# pinned ED25519 fingerprint is the only identity this server presents.
+ssh_deletekeys: true
+ssh_genkeytypes: []
+ssh_keys:
+  ed25519_private: |
+    ${indent(4, host_private_key)}
+  ed25519_public: ${jsonencode(host_public_key)}
+
+write_files:
+  - path: /etc/beads/backup.env
+    owner: root:root
+    permissions: "0600"
+    encoding: b64
+    content: "${backup_env_b64}"
+  - path: /root/beads-bootstrap.sh
+    owner: root:root
+    permissions: "0700"
+    # Compressed: EC2 refuses user data over 16 KiB.
+    encoding: gz+b64
+    content: ${bootstrap_gz_b64}
+
+runcmd:
+  - [chmod, "0700", /etc/beads]
+  - [bash, -c, "ADMIN_USER='${admin_user}' BACKUP_REMOTE='${backup_remote}' /root/beads-bootstrap.sh > /var/log/beads-bootstrap.log 2>&1"]

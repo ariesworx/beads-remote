@@ -1,0 +1,6 @@
+# Copy to terraform.tfvars (gitignored) and fill in.
+admin_user           = "alice"
+admin_ssh_public_key = "ssh-ed25519 AAAA... alice@laptop"
+region               = "us-east-1"
+# instance_type = "t4g.small"   # arm64; for x86 use t3.small with architecture = "amd64"
+# ssh_allowed_cidrs = ["203.0.113.0/24"]
