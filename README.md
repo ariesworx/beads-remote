@@ -34,6 +34,19 @@ workflows.
 go install github.com/ariesworx/beads-remote@latest
 ```
 
+Or download a release for Linux or macOS from
+[Releases](https://github.com/ariesworx/beads-remote/releases). Each release's
+`checksums.txt` is signed with keyless cosign, and every archive carries a
+GitHub build-provenance attestation. To verify:
+
+```sh
+cosign verify-blob checksums.txt --bundle checksums.txt.sigstore.json \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  --certificate-identity-regexp '^https://github.com/ariesworx/beads-remote/\.github/workflows/release\.yml@refs/tags/v'
+sha256sum --ignore-missing -c checksums.txt     # shasum -a 256 on macOS
+gh attestation verify beads-remote_*.tar.gz --repo ariesworx/beads-remote
+```
+
 You also need `bd` and OpenSSH on your PATH.
 
 ## Quick start
