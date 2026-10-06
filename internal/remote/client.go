@@ -86,7 +86,7 @@ func portFree(port int) bool {
 	if err != nil {
 		return false
 	}
-	l.Close()
+	_ = l.Close()
 	return true
 }
 
@@ -278,7 +278,7 @@ func (e Env) ensureCredentials(r *report, c *Config) {
 		if strings.HasPrefix(t, "[") {
 			skip = false
 		}
-		if !skip && !(t == "" && len(out) == 0) {
+		if !skip && (t != "" || len(out) != 0) {
 			out = append(out, line)
 		}
 	}
@@ -325,7 +325,7 @@ func (e Env) ensureMetadata(r *report, c *Config) {
 			r.fail(name, err.Error(), "")
 			return
 		}
-		if err := os.WriteFile(filepath.Join(e.beadsDir(), "metadata.json"), append(b, '\n'), 0o644); err != nil {
+		if err := os.WriteFile(filepath.Join(e.beadsDir(), "metadata.json"), append(b, '\n'), 0o644); err != nil { //nolint:gosec // bd's own file, not secret
 			r.fail(name, err.Error(), "")
 			return
 		}
@@ -343,7 +343,7 @@ func (e Env) ensureDirMode(r *report) {
 		r.ok(name, "")
 		return
 	}
-	if err := os.Chmod(e.beadsDir(), 0o700); err != nil {
+	if err := os.Chmod(e.beadsDir(), 0o700); err != nil { //nolint:gosec // a directory: 0700 is the tightest useful mode
 		r.fail(name, err.Error(), "chmod 700 .beads")
 		return
 	}
@@ -383,7 +383,7 @@ func (e Env) ensurePrefix(r *report, c *Config) {
 		b = append(b, '\n')
 	}
 	b = append(b, []byte("issue-prefix: \""+c.Prefix+"\"\n")...)
-	if err := os.WriteFile(p, b, 0o644); err != nil {
+	if err := os.WriteFile(p, b, 0o644); err != nil { //nolint:gosec // .beads/config.yaml is committed, not secret
 		r.fail(name, err.Error(), "")
 		return
 	}

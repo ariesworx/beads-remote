@@ -144,7 +144,7 @@ func (e Env) candidateKeys() []string {
 // connections can use it.
 func (e Env) createKey(path string) error {
 	host, _ := os.Hostname()
-	cmd := exec.Command("ssh-keygen", "-t", "ed25519", "-f", path, "-C", os.Getenv("USER")+"@"+host+" beads")
+	cmd := exec.Command("ssh-keygen", "-t", "ed25519", "-f", path, "-C", os.Getenv("USER")+"@"+host+" beads") //nolint:gosec // argv, no shell; USER only labels the key
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
 	if err := cmd.Run(); err != nil {
 		return err
@@ -215,7 +215,7 @@ func Init(dir string, e Env, host, database string, port int) int {
 		r.fail("init", err.Error(), "")
 		return r.finish("")
 	}
-	if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+	if err := os.WriteFile(p, []byte(body), 0o644); err != nil { //nolint:gosec // .beads/remote.yaml is committed, not secret
 		r.fail("init", err.Error(), "")
 		return r.finish("")
 	}

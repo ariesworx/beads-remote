@@ -147,7 +147,7 @@ func (c *Config) Validate() error {
 	}
 	for _, p := range []string{c.Paths.PasswordFile, c.Paths.AdminPasswordFile, c.Paths.SSHDConfig, c.Paths.BackupScript} {
 		if !pathRE.MatchString(p) || strings.Contains(p, "..") {
-			return fmt.Errorf("path %q must be absolute, with no spaces or ..", p)
+			return fmt.Errorf("path %q must be absolute, with no spaces and no .. component", p)
 		}
 	}
 	return nil

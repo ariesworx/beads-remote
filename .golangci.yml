@@ -1,0 +1,31 @@
+version: "2"
+linters:
+  default: standard        # errcheck, govet, ineffassign, staticcheck, unused
+  enable:
+    - gosec
+    - misspell
+    - bodyclose
+    - errorlint
+    - nilerr
+    - unconvert
+    - usestdlibvars
+  settings:
+    errcheck:
+      # Writing the report to the terminal: nothing useful to do on failure.
+      exclude-functions:
+        - fmt.Fprint
+        - fmt.Fprintf
+        - fmt.Fprintln
+  exclusions:
+    presets: [std-error-handling]
+    rules:
+      # G304 (file path from a variable) and G204 (command with variable
+      # arguments) are this tool's job: paths come from validated config and
+      # commands are fixed program names with argv, never a shell string.
+      - linters: [gosec]
+        text: "G(304|204)"
+      # Tests run stub programs and write fixtures on purpose.
+      - path: _test\.go
+        linters: [gosec]
+formatters:
+  enable: [gofmt, goimports]

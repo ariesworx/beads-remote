@@ -16,7 +16,7 @@ approach before you write it. Security problems go through
 3. Run the checks:
 
    ```sh
-   gofmt -l . && go vet ./... && go test ./...
+   golangci-lint run ./... && go test ./...
    shellcheck internal/remote/server.sh deploy/bootstrap.sh test/*.sh
    ```
 
