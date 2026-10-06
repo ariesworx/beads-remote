@@ -19,7 +19,7 @@ var (
 	// A public key line: type, base64 blob, optional plain comment. Nothing
 	// that could close a quote or start an option.
 	keyRE     = regexp.MustCompile(`^(ssh-ed25519|sk-ssh-ed25519@openssh\.com) [A-Za-z0-9+/]+=*( [A-Za-z0-9@._+-]{1,100})?$`)
-	patternRE = regexp.MustCompile(`^[A-Za-z0-9+/=@._-]{6,}$`)
+	patternRE = regexp.MustCompile(`^[A-Za-z0-9+/=@._:-]{6,}$`)
 )
 
 // ParseKey reads a public key file and returns its single line, or why it is
@@ -145,12 +145,12 @@ func AddKey(c *Config, e Env, pubFile string) int {
 	return e.server(c, "add-key", key, "")
 }
 
-// Revoke removes every key whose line contains pattern (its base64 blob or
-// its comment). The password need not change: a key is what grants it.
+// Revoke removes the keys whose fingerprint, base64 blob or whole comment
+// equals pattern. The password need not change: a key is what grants it.
 func Revoke(c *Config, e Env, pattern string) int {
 	if !patternRE.MatchString(pattern) {
 		r := &report{env: e}
-		r.fail("revoke", "give at least 6 characters of the key or its comment (letters, digits, + / = @ . _ -)", "beads-remote server keys")
+		r.fail("revoke", "give a key's fingerprint (SHA256:...), its base64 blob, or its exact comment", "beads-remote server keys")
 		return r.finish("")
 	}
 	return e.server(c, "revoke", "", pattern)

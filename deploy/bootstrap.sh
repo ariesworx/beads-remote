@@ -35,6 +35,19 @@ BACKUP_REMOTE=${BACKUP_REMOTE:-}
 
 say() { printf '\033[32m✓\033[0m %s\n' "$*"; }
 die() { printf '\033[31m✗\033[0m %s\n' "$*" >&2; exit 1; }
+# put FILE MODE writes stdin to FILE only when the content differs, and
+# succeeds only then, so a re-run rewrites, reloads and restarts nothing that
+# is already right.
+put() {
+  local tmp; tmp=$(mktemp) || die "no temporary file"
+  cat > "$tmp" || die "cannot stage $1"
+  if [ -f "$1" ] && cmp -s "$tmp" "$1"; then
+    chmod "$2" "$1" || die "cannot chmod $1"
+    rm -f "$tmp"; return 1
+  fi
+  install -m "$2" "$tmp" "$1" || die "cannot write $1"
+  rm -f "$tmp"
+}
 
 [ "$(id -u)" = 0 ] || die "run as root"
 [[ $ADMIN_USER =~ ^[a-z_][a-z0-9_-]{0,31}$ ]] || die "set ADMIN_USER to the account you administer this server as"
@@ -74,13 +87,14 @@ if [ "$(/usr/local/bin/dolt version 2>/dev/null | awk 'NR==1 { print $3 }')" != 
   tar -xzf "$tmp/dolt.tar.gz" -C "$tmp"
   install -m 0755 "$tmp/dolt-linux-$arch/bin/dolt" /usr/local/bin/dolt
   rm -rf "$tmp"
+  restart_dolt=1
 fi
 say "dolt $DOLT_VERSION"
 
 id dolt >/dev/null 2>&1 || useradd --system --home-dir "$DATA" --shell /usr/sbin/nologin dolt
 install -d -o dolt -g dolt -m 0700 "$DATA" "$DATA/data" "$DATA/cfg"
 install -d -m 0755 /etc/dolt
-cat > /etc/dolt/config.yaml <<CONF
+put /etc/dolt/config.yaml 0644 <<CONF && restart_dolt=1
 # Written by beads-remote deploy/bootstrap.sh. Loopback only: developers
 # reach it through the SSH tunnel, never directly.
 log_level: info
@@ -93,6 +107,11 @@ data_dir: $DATA/data
 cfg_dir: $DATA/cfg
 privilege_file: $DATA/cfg/privileges.db
 branch_control_file: $DATA/cfg/branch_control.db
+system_variables:
+  # Without this, any login can read and write files as the dolt user with
+  # LOAD_FILE and INTO OUTFILE, whatever its grants. A directory that does
+  # not exist turns both off.
+  secure_file_priv: /nonexistent-beads
 CONF
 # Dolt's metrics are opt-out. Run from its own home: Dolt looks for
 # databases in the working directory.
@@ -104,7 +123,7 @@ CONF
   dc --get user.email >/dev/null 2>&1 || dc --add user.email beads-server@localhost >/dev/null
 )
 
-cat > /etc/systemd/system/dolt.service <<'UNIT'
+put /etc/systemd/system/dolt.service 0644 <<'UNIT' && { reload_units=1; restart_dolt=1; }
 [Unit]
 Description=Dolt SQL server for beads
 After=network.target
@@ -137,9 +156,9 @@ UMask=0077
 [Install]
 WantedBy=multi-user.target
 UNIT
-systemctl daemon-reload
+[ -z "${reload_units:-}" ] || systemctl daemon-reload
 systemctl enable --now dolt >/dev/null 2>&1 || systemctl enable --now dolt
-systemctl restart dolt
+[ -z "${restart_dolt:-}" ] || systemctl restart dolt
 for _ in $(seq 60); do
   python3 -c 'import socket; socket.create_connection(("127.0.0.1", 3306), 1)' 2>/dev/null && break
   sleep 1
@@ -184,7 +203,7 @@ say "root locked; admin login beads (password in $ETC/db-password)"
 # hardening goes in 00- to beat images that ship 50-cloud-init.conf with
 # passwords on. AllowUsers sits alone in 99-, which beads-remote server
 # provision appends each database account to.
-cat > "$SSHD_FIRST" <<'CONF'
+put "$SSHD_FIRST" 0644 <<'CONF' && reload_sshd=1
 # Written by beads-remote deploy/bootstrap.sh.
 PasswordAuthentication no
 KbdInteractiveAuthentication no
@@ -203,9 +222,10 @@ AllowTcpForwarding local
 CONF
 if [ -f "$SSHD_USERS" ] && grep -q '^AllowUsers' "$SSHD_USERS"; then
   grep -Eq "^AllowUsers(.*[[:space:]])?$ADMIN_USER([[:space:]]|\$)" "$SSHD_USERS" ||
-    sed -i -E "s/^(AllowUsers)/\\1 $ADMIN_USER/" "$SSHD_USERS"
+    { sed -i -E "s/^(AllowUsers)/\\1 $ADMIN_USER/" "$SSHD_USERS"; reload_sshd=1; }
 else
   printf '# Written by beads-remote; server provision adds database accounts.\nAllowUsers %s\n' "$ADMIN_USER" > "$SSHD_USERS"
+  reload_sshd=1
 fi
 install -d -m 0755 /run/sshd   # sshd -t needs it; absent when sshd has not run yet
 sshd -t || die "sshd rejected the configuration; it was not reloaded"
@@ -216,7 +236,9 @@ done
 # Ubuntu 24.04 starts sshd on the first connection, so on first boot it may
 # not be running yet: then there is nothing to reload, and it starts with
 # this configuration.
-systemctl try-reload-or-restart ssh.service 2>/dev/null || systemctl try-reload-or-restart sshd.service
+if [ -n "${reload_sshd:-}" ]; then
+  systemctl try-reload-or-restart ssh.service 2>/dev/null || systemctl try-reload-or-restart sshd.service
+fi
 say "sshd: keys only, AllowUsers $(sed -n 's/^AllowUsers //p' "$SSHD_USERS")"
 
 # ── Firewall ────────────────────────────────────────────────────────────────
@@ -227,7 +249,7 @@ ufw --force enable >/dev/null
 say "ufw: 22/tcp only (rate limited)"
 
 # ── Updates ─────────────────────────────────────────────────────────────────
-cat > /etc/apt/apt.conf.d/20auto-upgrades <<'CONF'
+put /etc/apt/apt.conf.d/20auto-upgrades 0644 <<'CONF' || true
 APT::Periodic::Update-Package-Lists "1";
 APT::Periodic::Unattended-Upgrade "1";
 CONF
@@ -238,9 +260,9 @@ say "unattended security upgrades"
 # Dolt's commit history, and a per-database SQL dump of the current rows. Both
 # enumerate every database, so new projects are covered without edits.
 [ -f "$ETC/backup.env" ] || install -m 0600 /dev/null "$ETC/backup.env"
-printf 'BACKUP_REMOTE=%s\n' "$BACKUP_REMOTE" > "$ETC/backup.conf"
+printf 'BACKUP_REMOTE=%s\n' "$BACKUP_REMOTE" | put "$ETC/backup.conf" 0644 || true
 install -d -m 0700 /var/backups/dolt
-cat > /usr/local/sbin/dolt-backup.sh <<'SCRIPT'
+put /usr/local/sbin/dolt-backup.sh 0755 <<'SCRIPT' || true
 #!/usr/bin/env bash
 # shellcheck disable=SC1091,SC2012  # sources its own config; names are ours
 # Backs up every Dolt database. Written by beads-remote deploy/bootstrap.sh.
@@ -294,17 +316,16 @@ case "${1:-}" in
   *) echo "usage: dolt-backup.sh fs|dump" >&2; exit 2 ;;
 esac
 SCRIPT
-chmod 0755 /usr/local/sbin/dolt-backup.sh
 for kind in fs dump; do
   when='*-*-* 03:15:00 UTC'; [ "$kind" = dump ] && when='*-*-* 06:00:00 UTC'
-  cat > "/etc/systemd/system/dolt-backup-$kind.service" <<UNIT
+  put "/etc/systemd/system/dolt-backup-$kind.service" 0644 <<UNIT && reload_units=1
 [Unit]
 Description=Dolt backup ($kind)
 [Service]
 Type=oneshot
 ExecStart=/usr/local/sbin/dolt-backup.sh $kind
 UNIT
-  cat > "/etc/systemd/system/dolt-backup-$kind.timer" <<UNIT
+  put "/etc/systemd/system/dolt-backup-$kind.timer" 0644 <<UNIT && reload_units=1
 [Unit]
 Description=Dolt backup ($kind), daily
 [Timer]
@@ -315,7 +336,7 @@ Persistent=true
 WantedBy=timers.target
 UNIT
 done
-systemctl daemon-reload
+[ -z "${reload_units:-}" ] || systemctl daemon-reload
 systemctl enable --now dolt-backup-fs.timer dolt-backup-dump.timer >/dev/null 2>&1
 if [ -n "$BACKUP_REMOTE" ]; then
   set -a; . "$ETC/backup.env"; set +a

@@ -83,7 +83,7 @@ PidFile $WORK/sshd.pid
 PasswordAuthentication no
 KbdInteractiveAuthentication no
 PermitRootLogin no
-AllowTcpForwarding yes
+AllowTcpForwarding local
 UsePAM no
 Include $ETC/sshd.d/*.conf
 CONF
@@ -122,11 +122,28 @@ YAML
 eval "$(ssh-agent -s)" >/dev/null
 ssh-add -q "$WORK/admin_key"
 br() { "$BIN" -C "$WORK/repo" "$@"; }
+# Owner, mode and content of every file the server commands manage, to show
+# a repeated command changes nothing.
+server_state() {
+  for f in "/home/$DB/.ssh/authorized_keys" "/etc/$DB/db-password" "$ETC/sshd.d/99-beads.conf" "$ETC/dolt-backup.sh"; do
+    [ -e "$f" ] && printf '%s %s %s\n' "$f" "$(stat -c '%U:%G %a' "$f")" "$(sha256sum < "$f")"
+  done
+}
 
 # ── Server side ────────────────────────────────────────────────────────────
 refuse "server check fails before provisioning" br server check
+# Dolt's default lets any login read server files; provision must refuse it.
+refuse "provision refuses a Dolt that leaks files" br server provision
+expect "and says why" sh -c "'$BIN' -C '$WORK/repo' server provision | grep -q 'file access: .*can read and write any file'"
+kill "$DOLT_PID"; wait "$DOLT_PID" 2>/dev/null || true
+printf 'listener:\n  host: 127.0.0.1\n  port: 3306\nsystem_variables:\n  secure_file_priv: /nonexistent-beads\n' > "$WORK/dolt.yaml"
+(cd "$WORK/dolt/data" && exec dolt sql-server --config "$WORK/dolt.yaml" >> "$WORK/dolt.log" 2>&1) &
+DOLT_PID=$!
+for _ in $(seq 50); do python3 -c "import socket; socket.create_connection(('127.0.0.1', 3306), 1)" 2>/dev/null && break; sleep 0.2; done
 expect "server provision" br server provision
-expect "server provision again is a no-op" br server provision
+before=$(server_state)
+expect "server provision again succeeds" br server provision
+expect "and changes nothing" test "$before" = "$(server_state)"
 expect "server check passes" br server check
 expect "AllowUsers gained the account" grep -Eq "^AllowUsers $ADMIN $DB\$" "$ETC/sshd.d/99-beads.conf"
 expect "backup list gained the database" grep -q "DATABASES=($DB otherproject" "$ETC/dolt-backup.sh"
@@ -137,7 +154,9 @@ refuse "setup refused before the key is added" br setup --yes --key "$HOME/.ssh/
 expect "refusal names the add-key step" sh -c "'$BIN' -C '$WORK/repo' setup --yes 2>&1 | grep -q 'server add-key id_ed25519.pub'"
 refuse "a private key is refused by add-key" br server add-key "$HOME/.ssh/id_ed25519"
 expect "server add-key" br server add-key "$HOME/.ssh/id_ed25519.pub"
+before=$(server_state)
 expect "server add-key again replaces, not duplicates" br server add-key "$HOME/.ssh/id_ed25519.pub"
+expect "and changes nothing" test "$before" = "$(server_state)"
 expect "one key on the server" test "$(grep -c ssh-ed25519 "/home/$DB/.ssh/authorized_keys")" = 1
 expect "setup" br setup --yes
 expect "check" br check
@@ -179,6 +198,12 @@ c = pymysql.connect(host="127.0.0.1", port=3306, user="$DB", password=open(sys.a
 cur = c.cursor(); cur.execute("SHOW DATABASES")
 sys.exit(1 if "otherproject" in {r[0] for r in cur.fetchall()} else 0)
 PY
+expect "the database user cannot read server files" python3 - "/etc/$DB/db-password" <<PY
+import pymysql, sys
+c = pymysql.connect(host="127.0.0.1", port=3306, user="$DB", password=open(sys.argv[1]).read().strip())
+cur = c.cursor(); cur.execute("SELECT LOAD_FILE('/etc/passwd')")
+sys.exit(0 if cur.fetchone()[0] is None else 1)
+PY
 expect "password never printed" sh -c "! '$BIN' -C '$WORK/repo' check -v --json | grep -qF \"\$(cat /etc/$DB/db-password)\""
 
 # An older, looser key line is tightened by provision.
@@ -189,7 +214,16 @@ expect "key line forced again" grep -q '^command="cat /etc/beadse2e/db-password"
 
 # Revocation.
 expect "down" br down
+expect "revoke by a shared substring matches nothing" sh -c "'$BIN' -C '$WORK/repo' server revoke port-forwarding | grep -q 'nothing removed'"
+expect "and removed nothing" test "$(grep -c ssh-ed25519 "/home/$DB/.ssh/authorized_keys")" = 1
+# The same key under a second comment must not survive revoking the first.
+dup=$(sed -n '/ dev@e2e$/{s/ dev@e2e$/ dev@other/;p}' "/home/$DB/.ssh/authorized_keys")
+printf '%s\n' "$dup" >> "/home/$DB/.ssh/authorized_keys"
 expect "server revoke" br server revoke dev@e2e
+expect "and every line with that key went" test "$(grep -c ssh-ed25519 "/home/$DB/.ssh/authorized_keys")" = 0
+before=$(server_state)
+expect "server revoke again succeeds" br server revoke dev@e2e
+expect "and changes nothing" test "$before" = "$(server_state)"
 rm -f "$HOME/.config/beads-remote/$DB@127.0.0.1.pw"
 refuse "a revoked key cannot connect" br up
 

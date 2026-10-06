@@ -87,3 +87,45 @@ if visible == {DB}:
 else:
     res("fail", "isolation", f"{DB} can see: {', '.join(sorted(visible - {DB}))}", "revoke the extra grants")
     sys.exit(1)
+
+# Dolt lets any login read and write server files with LOAD_FILE and
+# SELECT ... INTO OUTFILE, FILE grant or not, unless secure_file_priv names a
+# directory. Empty (Dolt's default) would let every project's developer read
+# the others' data and the server's privilege store. A directory that exists
+# still allows both inside it, and /var/lib/dolt would expose every database,
+# so only NULL (both disabled) or a path that does not exist passes.
+FIX = ("add 'system_variables: {secure_file_priv: /nonexistent-beads}' to the Dolt config and restart Dolt; "
+       "deploy/bootstrap.sh does this")
+
+
+def reads(cursor, path):
+    """True when LOAD_FILE returned the file's contents."""
+    try:
+        cursor.execute("SELECT LOAD_FILE(%s)", (path,))
+        return cursor.fetchone()[0] is not None
+    except pymysql.MySQLError:
+        return False
+
+
+def writes(cursor, path):
+    """True when SELECT ... INTO OUTFILE succeeded."""
+    try:
+        cursor.execute(f"SELECT 1 INTO OUTFILE '{path}'")
+        return True
+    except pymysql.MySQLError:
+        return False
+
+
+cur.execute("SELECT @@global.secure_file_priv")
+priv = cur.fetchone()[0]
+if priv == "":
+    res("fail", "file access", f"{DB} can read and write any file the Dolt server can (secure_file_priv is empty)", FIX)
+    sys.exit(1)
+if priv is not None and os.path.exists(priv):
+    res("fail", "file access", f"{DB} can read and write files in {os.path.realpath(priv)} (secure_file_priv names a directory that exists)", FIX)
+    sys.exit(1)
+probe_file = f"/tmp/beads-remote-probe-{os.getpid()}"
+if reads(c2, "/etc/passwd") or writes(c2, probe_file):
+    res("fail", "file access", f"{DB} reached the server's files despite secure_file_priv {priv!r}", FIX)
+    sys.exit(1)
+res("ok", "file access", "none (secure_file_priv " + ("NULL" if priv is None else priv) + ")")

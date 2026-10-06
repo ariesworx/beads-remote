@@ -63,7 +63,8 @@ case " $* " in
   *) echo "unexpected ssh $*" >&2; exit 99 ;;
 esac
 `)
-	stub("ssh-keyscan", `[ -f "`+f.state+`/otherkey" ] && { echo "beads.example.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIHVoYmFkYmFkYmFkYmFkYmFkYmFkYmFkYmFkYmFkYmFkYmFk"; exit 0; }
+	stub("ssh-keyscan", `[ -s "`+f.state+`/otherkey" ] && { cat "`+f.state+`/otherkey"; exit 0; }
+[ -f "`+f.state+`/otherkey" ] && { echo "beads.example.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIHVoYmFkYmFkYmFkYmFkYmFkYmFkYmFkYmFkYmFkYmFkYmFk"; exit 0; }
 echo "# beads.example.com:22 SSH-2.0-OpenSSH"
 echo "`+f.hostLine+`"
 `)
@@ -155,14 +156,12 @@ func TestConfigValidation(t *testing.T) {
 		"privileged port":     strings.Replace(good, "port: 3312", "port: 80", 1),
 		"path traversal":      good + "paths:\n  password_file: /etc/../root/x\n",
 		"space in path":       good + "paths:\n  sshd_config: /etc/ssh/a b\n",
-		"admin with command":  strings.Replace(good, "port: 3312", "port: 3312\n", 1) + "", // placeholder kept valid below
+		"host as ssh option":  strings.Replace(good, "host: beads.example.com", "host: -Jevil.example", 1),
+		"admin as ssh option": good[:strings.Index(good, "database")] + "  admin: -Jevil.example\n" + good[strings.Index(good, "database"):],
 		"admin shell chars":   good[:strings.Index(good, "database")] + "  admin: root@x;id\n" + good[strings.Index(good, "database"):],
 		"prefix with space":   good + "prefix: \"h q\"\n",
 		"missing fingerprint": strings.Replace(good, "  host_key: SHA256:et6CqkKsyU2BxzA7Ws+V18rXrtM9Gj6dk1/m0C5TqvU\n", "", 1),
 	} {
-		if name == "admin with command" {
-			continue
-		}
 		if _, err := Parse([]byte(bad)); err == nil {
 			t.Errorf("%s: accepted", name)
 		}
@@ -516,4 +515,136 @@ func TestSchemaPrefixMismatch(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(f.state, "init.args")); err == nil {
 		t.Error("bd init ran over a database with another prefix")
 	}
+}
+
+// A pull request that changes server.host_key must not move developers to
+// another server silently: an existing pin wins until --repin.
+func TestChangedConfigKeyNeedsRepin(t *testing.T) {
+	f := newFixture(t)
+	e := f.env()
+	other := "elsewhere.example.org ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl"
+	must(t, writePrivate(e.knownHosts(), []byte(other+"\n")))
+	wantCode(t, Up(f.cfg, f.env()), 0, f.out.String())
+	if !strings.Contains(f.read(e.knownHosts()), other) {
+		t.Fatal("pinning this server dropped another server's pin")
+	}
+
+	// The server now presents a different, real key.
+	rotated := filepath.Join(f.home, "rotated_host")
+	mustRun(t, f.home, "ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-f", rotated)
+	pub, err := os.ReadFile(rotated + ".pub")
+	must(t, err)
+	must(t, os.WriteFile(filepath.Join(f.state, "otherkey"), []byte("beads.example.com "+strings.Join(strings.Fields(string(pub))[:2], " ")+"\n"), 0o644))
+	newKey := fingerprints(string(pub))
+	old := f.cfg.Server.HostKey
+	f.cfg.Server.HostKey = newKey[0]
+	must(t, os.Remove(filepath.Join(f.state, "up")))
+
+	wantCode(t, Up(f.cfg, f.env()), 1, f.out.String())
+	if out := f.out.String(); !strings.Contains(out, "but you pinned "+old) || !strings.Contains(out, "--repin") {
+		t.Errorf("changed config key not refused with a way forward:\n%s", out)
+	}
+	if fileExists(filepath.Join(f.state, "up")) {
+		t.Error("tunnel opened to an unconfirmed key")
+	}
+
+	e = f.env()
+	e.Repin = true
+	wantCode(t, Up(f.cfg, e), 0, f.out.String())
+	kh := f.read(e.knownHosts())
+	if fp := fingerprints(kh); !strings.Contains(strings.Join(fp, " "), newKey[0]) || strings.Contains(strings.Join(fp, " "), old) {
+		t.Errorf("--repin did not replace the pin: %v", fp)
+	}
+	if !strings.Contains(kh, other) {
+		t.Error("--repin dropped another server's pin")
+	}
+}
+
+func TestChangedConfigHostNeedsRepin(t *testing.T) {
+	f := newFixture(t)
+	wantCode(t, Up(f.cfg, f.env()), 0, f.out.String())
+
+	// A pull request moves the repository to another host, with a key that
+	// host really presents. Without --repin that is refused.
+	f.cfg.Server.Host = "elsewhere.example.org"
+	must(t, os.Remove(filepath.Join(f.state, "up")))
+	wantCode(t, Up(f.cfg, f.env()), 1, f.out.String())
+	if out := f.out.String(); !strings.Contains(out, "but it used beads.example.com") || !strings.Contains(out, "--repin") {
+		t.Errorf("changed config host not refused with a way forward:\n%s", out)
+	}
+	if fileExists(filepath.Join(f.state, "up")) {
+		t.Error("tunnel opened to an unconfirmed host")
+	}
+	wantCode(t, Check(f.cfg, f.env()), 1, f.out.String())
+
+	e := f.env()
+	e.Repin = true
+	wantCode(t, Up(f.cfg, e), 0, f.out.String())
+	wantCode(t, Up(f.cfg, f.env()), 0, f.out.String())
+}
+
+// snapshot records every file the client manages, with its mode, so a
+// repeated command can be shown to change nothing.
+func (f *fixture) snapshot() map[string]string {
+	f.t.Helper()
+	snap := map[string]string{}
+	for _, root := range []string{filepath.Join(f.home, ".config"), filepath.Join(f.repo, ".beads")} {
+		_ = filepath.WalkDir(root, func(p string, d os.DirEntry, err error) error {
+			if err != nil || d.IsDir() {
+				return err
+			}
+			info, err := d.Info()
+			if err != nil {
+				return err
+			}
+			b, _ := os.ReadFile(p)
+			snap[p] = info.Mode().String() + "\n" + string(b)
+			return nil
+		})
+	}
+	return snap
+}
+
+func sameSnapshot(t *testing.T, what string, before, after map[string]string) {
+	t.Helper()
+	for p, v := range after {
+		if before[p] != v {
+			t.Errorf("%s changed %s", what, p)
+		}
+	}
+	for p := range before {
+		if _, ok := after[p]; !ok {
+			t.Errorf("%s removed %s", what, p)
+		}
+	}
+}
+
+// Every client command can be run again: it succeeds and changes nothing.
+func TestClientCommandsIdempotent(t *testing.T) {
+	f := newFixture(t)
+	wantCode(t, Setup(f.cfg, f.env(), ""), 0, f.out.String())
+	for _, step := range []struct {
+		name string
+		run  func() int
+	}{
+		{"setup", func() int { return Setup(f.cfg, f.env(), "") }},
+		{"up", func() int { return Up(f.cfg, f.env()) }},
+		{"check", func() int { return Check(f.cfg, f.env()) }},
+		{"status", func() int { return Status(f.cfg, f.env()) }},
+		{"init", func() int { return Init(f.repo, f.env(), "", "", 0) }},
+		{"init naming the same server", func() int { return Init(f.repo, f.env(), "beads.example.com", "hq", f.cfg.Port) }},
+	} {
+		before := f.snapshot()
+		wantCode(t, step.run(), 0, f.out.String())
+		sameSnapshot(t, step.name+" again", before, f.snapshot())
+	}
+
+	wantCode(t, Down(f.cfg, f.env()), 0, f.out.String())
+	before := f.snapshot()
+	wantCode(t, Down(f.cfg, f.env()), 0, f.out.String())
+	sameSnapshot(t, "down again", before, f.snapshot())
+
+	// init never rewrites a config that names something else.
+	wantCode(t, Init(f.repo, f.env(), "elsewhere.example.org", "", 0), 1, f.out.String())
+	sameSnapshot(t, "init for another server", before, f.snapshot())
 }

@@ -34,7 +34,7 @@ jobs:
       - name: shellcheck
         run: |
           shellcheck internal/remote/server.sh deploy/bootstrap.sh test/*.sh
-          awk '/cat > \/usr\/local\/sbin\/dolt-backup.sh/{f=1;next} /^SCRIPT$/{f=0} f' deploy/bootstrap.sh > "$RUNNER_TEMP/dolt-backup.sh"
+          awk '/dolt-backup.sh 0755 <<.SCRIPT./{f=1;next} /^SCRIPT$/{f=0} f' deploy/bootstrap.sh > "$RUNNER_TEMP/dolt-backup.sh"
           shellcheck "$RUNNER_TEMP/dolt-backup.sh"
 
   test:

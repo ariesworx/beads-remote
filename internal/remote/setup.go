@@ -170,13 +170,25 @@ func expandHome(p, home string) string {
 
 // Init writes .beads/remote.yaml for a repository that has none. It shows the
 // server's fingerprint and asks the user to confirm it out of band, so the
-// pin is never trust-on-first-use.
+// pin is never trust-on-first-use. Where the file exists, Init succeeds if it
+// matches what was asked for and changes nothing either way.
 func Init(dir string, e Env, host, database string, port int) int {
 	r := &report{env: e}
 	in := bufio.NewReader(e.In)
 	p := filepath.Join(dir, ConfigFile)
-	if _, err := os.Stat(p); err == nil {
-		r.fail("init", ConfigFile+" already exists", "edit it, or delete it first")
+	if b, err := os.ReadFile(p); err == nil {
+		// Re-running init is fine as long as it asks for what is already
+		// there; it never rewrites a committed config.
+		c, err := Parse(b)
+		switch {
+		case err != nil:
+			r.fail("init", ConfigFile+" exists but is invalid: "+err.Error(), "fix it by hand")
+		case host != "" && host != c.Server.Host, database != "" && database != c.Database, port != 0 && port != c.Port:
+			r.fail("init", fmt.Sprintf("%s already exists for %s on %s, port %d", ConfigFile, c.Database, c.Server.Host, c.Port), "edit it by hand to change it")
+		default:
+			r.ok("init", ConfigFile+" already exists for "+c.Database+" on "+c.Server.Host)
+			return r.finish(ConfigFile + " already in place; run `beads-remote setup`")
+		}
 		return r.finish("")
 	}
 	if host == "" {

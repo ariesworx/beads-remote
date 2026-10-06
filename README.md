@@ -57,6 +57,13 @@ exact command to send to the server admin.
 `-v` also lists what passed, `--json` prints one document, `--no-color` or
 `NO_COLOR` turns colour off, and `-C DIR` runs against another repository.
 
+**Every command is idempotent.** Running one again succeeds and changes
+nothing that is already right: `init` accepts an existing `remote.yaml` that
+names the same server, `down` is fine when nothing is up, `add-key` replaces
+rather than duplicates, `revoke` of a key that is already gone warns and
+succeeds, and `deploy/bootstrap.sh` rewrites, reloads and restarts only what
+changed. The tests run each command twice and compare the files it manages.
+
 ## Admin: add a database and developers
 
 Needs an SSH login to the server with passwordless sudo (`server.admin`).
@@ -102,11 +109,22 @@ the server boots. See [`deploy/README.md`](deploy/README.md).
 - **A developer key can do exactly two things:** forward to `127.0.0.1:3306`
   and read its database password. Every key line is
   `command="cat <password file>",restrict,port-forwarding,permitopen="127.0.0.1:3306"`.
-  There is no shell, no other forward, no agent or X11 forwarding.
+  There is no shell, no other forward, no agent or X11 forwarding, and sshd's
+  `AllowTcpForwarding local` stops remote (`-R`) forwards (`server check` warns
+  if it is missing).
 - **One database per account.** Each database has its own Unix account and
   MySQL user, granted on that one schema only; it cannot list other databases.
-- **Revoking is deleting a key line.** The password grants nothing without a
-  key, so it need not change.
+- **Database logins cannot touch the server's files.** Dolt otherwise lets any
+  login use `LOAD_FILE` and `INTO OUTFILE` whatever its grants; the bootstrap
+  sets `secure_file_priv`, and `server check` fails unless it is NULL or a
+  path that does not exist, or if a login can read or write a file.
+- **A changed host or host key in `remote.yaml` is refused** once you have
+  connected, so a pull request cannot quietly point developers at another
+  server. Confirm the new server with the admin, then `up --repin`.
+- **Revoking deletes every line carrying the key**, chosen by exact
+  fingerprint, key or comment, never a substring; a comment shared by two
+  keys is refused. The password grants nothing without a key, so it need
+  not change.
 - **Secrets stay out of argv and the repository.** The password is cached at
   `~/.config/beads-remote/<db>@<host>.pw` (0600) and written to bd's
   credentials file; it is passed to child processes through the environment.

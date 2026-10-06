@@ -29,13 +29,14 @@ Server admin (needs ssh to server.admin with passwordless sudo):
   server provision       create or repair this repository's database, account and grants
   server check           the same checks, read-only
   server add-key PUB     authorize a developer's public key for the tunnel only
-  server revoke PATTERN  remove keys matching a key blob or comment
+  server revoke KEY      remove a key by fingerprint, base64 blob or exact comment
   server keys            list authorized keys
 
 New repository:
   init [--host H] [--database D] [--port N]   write .beads/remote.yaml
 
 Flags (any command): -C DIR  --json  -v  --yes  --no-color
+  --repin  accept a server host key that changed in remote.yaml (confirm it first)
 Output: one line per failure or warning, then one summary line; -v shows passes;
 --json prints one document for agents. Exit 0 ok, 1 failed, 2 usage.
 `
@@ -49,6 +50,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	jsonOut := fs.Bool("json", false, "")
 	verbose := fs.Bool("v", false, "")
 	yesAll := fs.Bool("yes", false, "")
+	repin := fs.Bool("repin", false, "")
 	noColor := fs.Bool("no-color", false, "")
 	key := fs.String("key", "", "")
 	host := fs.String("host", "", "")
@@ -86,7 +88,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	env := remote.Env{
 		Home: home, In: stdin, Out: stdout,
 		Color: !*noColor && !*jsonOut && os.Getenv("NO_COLOR") == "" && os.Getenv("TERM") != "dumb" && isTerminal(stdout),
-		JSON:  *jsonOut, Verbose: *verbose, Yes: *yesAll,
+		JSON:  *jsonOut, Verbose: *verbose, Yes: *yesAll, Repin: *repin,
 	}
 
 	if words[0] == "init" {

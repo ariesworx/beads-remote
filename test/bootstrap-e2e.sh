@@ -79,12 +79,24 @@ refuse "bootstrap refuses an admin without a key" env ADMIN_USER=nobody "$HERE/d
 printf 'RCLONE_CONFIG_BACKUP_TYPE=local\n' > "$WORK/backup.env"
 install -d -m 0700 /etc/beads && install -m 0600 "$WORK/backup.env" /etc/beads/backup.env
 if ADMIN_USER=$ADMIN BACKUP_REMOTE="backup:$WORK/backups" "$HERE/deploy/bootstrap.sh" > "$WORK/bootstrap.out" 2>&1; then ok "bootstrap"; else bad "bootstrap"; cat "$WORK/bootstrap.out"; fi
-expect "bootstrap again is a no-op that succeeds" env ADMIN_USER=$ADMIN BACKUP_REMOTE="backup:$WORK/backups" "$HERE/deploy/bootstrap.sh"
+# Everything bootstrap writes, with owner and mode; Dolt's own data is left
+# out because the running server changes it.
+boot_state() {
+  find /etc/dolt /etc/beads /etc/ssh/sshd_config.d /etc/systemd/system /usr/local/sbin/dolt-backup.sh /var/lib/dolt -maxdepth 1 -type f -print0 2>/dev/null |
+    sort -z | xargs -0 -r stat -c '%n %U:%G %a %s %Y'
+  find /etc/dolt /etc/beads /etc/ssh/sshd_config.d -type f -print0 | sort -z | xargs -0 -r sha256sum
+  id dolt; id "$ADMIN"
+}
+before=$(boot_state); restarts=$(grep -c 'restart' "$WORK/systemctl.log" || true)
+expect "bootstrap again succeeds" env ADMIN_USER=$ADMIN BACKUP_REMOTE="backup:$WORK/backups" "$HERE/deploy/bootstrap.sh"
+expect "and changes no file" test "$before" = "$(boot_state)"
+expect "and restarts nothing" test "$restarts" = "$(grep -c 'restart' "$WORK/systemctl.log" || true)"
 expect "dolt is the pinned version" sh -c "/usr/local/bin/dolt version | grep -q 2.4.2"
 expect "dolt answers on loopback" python3 -c "import socket; socket.create_connection(('127.0.0.1', 3306), 2)"
 IP=$(hostname -I 2>/dev/null | awk '{ print $1 }')
 if [ -n "$IP" ]; then refuse "dolt does not answer on $IP" python3 -c "import socket; socket.create_connection(('$IP', 3306), 2)"; fi
 refuse "root has no empty password" python3 -c "import pymysql; pymysql.connect(host='127.0.0.1', port=3306, user='root')"
+expect "logins cannot read server files" python3 -c "import pymysql; c = pymysql.connect(host='127.0.0.1', port=3306, user='beads', password=open('/etc/beads/db-password').read().strip()); cur = c.cursor(); cur.execute(\"SELECT LOAD_FILE('/etc/passwd')\"); assert cur.fetchone()[0] is None"
 expect "admin login works" python3 -c "import pymysql; pymysql.connect(host='127.0.0.1', port=3306, user='beads', password=open('/etc/beads/db-password').read().strip())"
 expect "secrets are root 0600" sh -c "[ \"\$(stat -c '%U %a' /etc/beads/db-password /etc/beads/root-password | sort -u)\" = 'root 600' ]"
 expect "data dir is dolt 0700" test "$(stat -c '%U %a' /var/lib/dolt)" = "dolt 700"
