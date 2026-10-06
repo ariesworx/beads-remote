@@ -46,7 +46,7 @@ trap cleanup EXIT
 mkdir -p "$ETC/sshd.d" "$WORK/dolt/data"
 umask 077
 head -c 48 /dev/urandom | base64 | tr -d '\n=+/' | cut -c1-32 > "$ETC/admin-pw"
-(cd "$WORK/dolt/data" && dolt init --name e2e --email e2e@example.invalid >/dev/null 2>&1 || true)
+(cd "$WORK/dolt/data" && { dolt init --name e2e --email e2e@example.invalid >/dev/null 2>&1 || true; })
 (cd "$WORK/dolt/data" && exec dolt sql-server --host 127.0.0.1 --port 3306 > "$WORK/dolt.log" 2>&1) &
 DOLT_PID=$!
 for _ in $(seq 50); do python3 -c "import pymysql; pymysql.connect(host='127.0.0.1', port=3306, user='root')" 2>/dev/null && break; sleep 0.2; done
