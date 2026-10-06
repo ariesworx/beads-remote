@@ -97,6 +97,17 @@ step_sshd() {
   fi
 }
 
+# A key's port-forwarding option allows remote (-R) forwards too; only sshd's
+# own AllowTcpForwarding can stop those.
+step_forwarding() {
+  local fwd
+  fwd=$(sshd -T -C "user=$DB,host=localhost,addr=127.0.0.1" 2>/dev/null | awk '$1 == "allowtcpforwarding" { print $2 }')
+  case "$fwd" in
+    local|no) res ok "remote forwarding" "off (AllowTcpForwarding $fwd)" ;;
+    *) res warn "remote forwarding" "AllowTcpForwarding is ${fwd:-unknown}, so tunnel keys can open listening ports on the server" "set AllowTcpForwarding local in sshd (deploy/bootstrap.sh does)" ;;
+  esac
+}
+
 # Every key must carry exactly our options. A line that does not (an older
 # `restrict` without the forced command, say) is rewritten on provision.
 step_keys() {
@@ -158,15 +169,34 @@ add_key() {
   res ok "add key" "$(printf '%s\n' "$KEY" | ssh-keygen -lf - | awk '{ print $2, $3 }'); $(grep -cEv '^[[:space:]]*(#|$)' "$ak") key(s) now"
 }
 
+# Removes the keys whose fingerprint (SHA256:...), base64 blob or whole
+# comment equals PATTERN exactly. Never a substring: every line shares the
+# same options, so a loose match could remove every key at once.
 revoke() {
   local home ak; home=$(home_of "$DB"); ak="$home/.ssh/authorized_keys"
   [ -s "$ak" ] || { res fail "revoke" "no keys" ""; return 1; }
-  local before after tmp; before=$(grep -cEv '^[[:space:]]*(#|$)' "$ak"); tmp=$(mktemp)
-  grep -vF -- "$PATTERN" "$ak" > "$tmp" || true
-  after=$(grep -cEv '^[[:space:]]*(#|$)' "$tmp" || true)
-  if [ "$before" = "$after" ]; then rm -f "$tmp"; res fail "revoke" "no key matched $PATTERN" "beads-remote server keys"; return 1; fi
+  local tmp removed=() kept=0 line key fp blob comment
+  tmp=$(mktemp)
+  while IFS= read -r line || [ -n "$line" ]; do
+    if [[ $line =~ ^[[:space:]]*(#|$) ]]; then printf '%s\n' "$line" >> "$tmp"; continue; fi
+    key=$(printf '%s\n' "$line" | awk '{ for (i = 1; i <= NF; i++) if ($i ~ /^(ssh-|sk-|ecdsa-)/) { s = $i; for (j = i + 1; j <= NF; j++) s = s " " $j; print s; exit } }')
+    blob=$(printf '%s\n' "$key" | awk '{ print $2 }')
+    comment=$(printf '%s\n' "$key" | cut -s -d' ' -f3-)
+    fp=$(printf '%s\n' "$key" | ssh-keygen -lf - 2>/dev/null | awk '{ print $2 }')
+    if [ -n "$key" ] && { [ "$PATTERN" = "$fp" ] || [ "$PATTERN" = "$blob" ] || [ "$PATTERN" = "$comment" ]; }; then
+      removed+=("$fp${comment:+ $comment}")
+    else
+      printf '%s\n' "$line" >> "$tmp"; kept=$((kept + 1))
+    fi
+  done < "$ak"
+  if [ ${#removed[@]} -eq 0 ]; then
+    rm -f "$tmp"
+    res fail "revoke" "no key's fingerprint, blob or comment is exactly $PATTERN" "beads-remote server keys"
+    return 1
+  fi
   install -o "$DB" -g "$DB" -m 0600 "$tmp" "$ak"; rm -f "$tmp"
-  res ok "revoke" "$((before - after)) removed, $after left; no password change needed"
+  local k; for k in "${removed[@]}"; do res ok "revoked" "$k"; done
+  res ok "revoke" "${#removed[@]} removed, $kept left; no password change needed"
 }
 
 keys() {
@@ -182,6 +212,7 @@ server_steps() {
   step_account || return 1
   step_password || return 1
   step_sshd || return 1
+  step_forwarding
   step_keys || return 1
   step_backup || return 1
   database_steps

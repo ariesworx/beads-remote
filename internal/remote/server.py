@@ -87,3 +87,17 @@ if visible == {DB}:
 else:
     res("fail", "isolation", f"{DB} can see: {', '.join(sorted(visible - {DB}))}", "revoke the extra grants")
     sys.exit(1)
+
+# Dolt lets any login read and write server files with LOAD_FILE and
+# SELECT ... INTO OUTFILE, FILE grant or not, unless secure_file_priv names a
+# directory. Empty (Dolt's default) would let every project's developer read
+# the others' data and the server's privilege store.
+cur.execute("SELECT @@global.secure_file_priv")
+priv = cur.fetchone()[0]
+c2.execute("SELECT LOAD_FILE('/etc/passwd')")
+leaked = c2.fetchone()[0] is not None
+if priv in (None, "") or leaked:
+    res("fail", "file access", f"{DB} can read files on the server (secure_file_priv is {priv!r})",
+        "add 'system_variables: {secure_file_priv: /nonexistent-beads}' to the Dolt config and restart Dolt; deploy/bootstrap.sh does this")
+    sys.exit(1)
+res("ok", "file access", f"none (secure_file_priv {priv})")

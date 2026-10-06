@@ -93,6 +93,11 @@ data_dir: $DATA/data
 cfg_dir: $DATA/cfg
 privilege_file: $DATA/cfg/privileges.db
 branch_control_file: $DATA/cfg/branch_control.db
+system_variables:
+  # Without this, any login can read and write files as the dolt user with
+  # LOAD_FILE and INTO OUTFILE, whatever its grants. A directory that does
+  # not exist turns both off.
+  secure_file_priv: /nonexistent-beads
 CONF
 # Dolt's metrics are opt-out. Run from its own home: Dolt looks for
 # databases in the working directory.

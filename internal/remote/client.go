@@ -104,15 +104,31 @@ func fingerprints(keys string) []string {
 
 // pinHostKey makes sure our known_hosts holds the server key whose
 // fingerprint is in the config. It scans the server once and refuses any
-// other key; it never trusts on first use.
+// other key; it never trusts on first use. Once a host is pinned, a config
+// that names a different key for it is refused until the user confirms the
+// new fingerprint with --repin: a change to remote.yaml (a pull request, say)
+// must not be able to move developers to another server silently.
 func (e Env) pinHostKey(r *report, c *Config) bool {
 	const name = "server host key pinned"
+	var others, mine []string
 	if b, err := os.ReadFile(e.knownHosts()); err == nil {
-		for _, f := range fingerprints(string(b)) {
-			if f == c.Server.HostKey {
-				return r.ok(name, c.Server.HostKey)
+		for _, line := range strings.Split(strings.TrimSpace(string(b)), "\n") {
+			if f := strings.Fields(line); len(f) > 1 && hostListed(f[0], c.Server.Host) {
+				mine = append(mine, line)
+			} else if strings.TrimSpace(line) != "" {
+				others = append(others, line)
 			}
 		}
+	}
+	pinned := fingerprints(strings.Join(mine, "\n"))
+	for _, f := range pinned {
+		if f == c.Server.HostKey {
+			return r.ok(name, c.Server.HostKey)
+		}
+	}
+	if len(pinned) > 0 && !e.Repin {
+		return r.fail(name, fmt.Sprintf("%s now names %s for %s, but you pinned %s", ConfigFile, c.Server.HostKey, c.Server.Host, strings.Join(pinned, ", ")),
+			"if your server admin confirms the new key out of band: beads-remote up --repin")
 	}
 	scanned, err := run("", "", "ssh-keyscan", "-t", "ed25519", "-p", strconv.Itoa(c.Server.SSHPort), "-T", "10", c.Server.Host)
 	if err != nil && scanned == "" {
@@ -143,10 +159,24 @@ func (e Env) pinHostKey(r *report, c *Config) bool {
 		return r.fail(name, c.Server.Host+" presented "+got+", expected "+c.Server.HostKey,
 			"do not connect; confirm the fingerprint with the server admin out of band")
 	}
-	if err := writePrivate(e.knownHosts(), []byte(strings.Join(keep, "\n")+"\n")); err != nil {
+	// Other servers' pins (other repositories) stay as they were.
+	if err := writePrivate(e.knownHosts(), []byte(strings.Join(append(others, keep...), "\n")+"\n")); err != nil {
 		return r.fail(name, err.Error(), "check permissions on "+e.stateDir())
 	}
+	if len(pinned) > 0 {
+		return r.ok(name, "re-pinned "+c.Server.Host+" to "+c.Server.HostKey)
+	}
 	return r.ok(name, c.Server.HostKey)
+}
+
+// hostListed reports whether a known_hosts name list names host on any port.
+func hostListed(names, host string) bool {
+	for _, n := range strings.Split(names, ",") {
+		if n == host || strings.HasPrefix(n, "["+host+"]:") {
+			return true
+		}
+	}
+	return false
 }
 
 // Up opens the tunnel if it is down and makes every local file right.

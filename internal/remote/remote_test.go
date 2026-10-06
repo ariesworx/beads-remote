@@ -63,7 +63,8 @@ case " $* " in
   *) echo "unexpected ssh $*" >&2; exit 99 ;;
 esac
 `)
-	stub("ssh-keyscan", `[ -f "`+f.state+`/otherkey" ] && { echo "beads.example.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIHVoYmFkYmFkYmFkYmFkYmFkYmFkYmFkYmFkYmFkYmFkYmFk"; exit 0; }
+	stub("ssh-keyscan", `[ -s "`+f.state+`/otherkey" ] && { cat "`+f.state+`/otherkey"; exit 0; }
+[ -f "`+f.state+`/otherkey" ] && { echo "beads.example.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIHVoYmFkYmFkYmFkYmFkYmFkYmFkYmFkYmFkYmFkYmFkYmFk"; exit 0; }
 echo "# beads.example.com:22 SSH-2.0-OpenSSH"
 echo "`+f.hostLine+`"
 `)
@@ -515,5 +516,48 @@ func TestSchemaPrefixMismatch(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(f.state, "init.args")); err == nil {
 		t.Error("bd init ran over a database with another prefix")
+	}
+}
+
+// A pull request that changes server.host_key must not move developers to
+// another server silently: an existing pin wins until --repin.
+func TestChangedConfigKeyNeedsRepin(t *testing.T) {
+	f := newFixture(t)
+	e := f.env()
+	other := "elsewhere.example.org ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl"
+	must(t, writePrivate(e.knownHosts(), []byte(other+"\n")))
+	wantCode(t, Up(f.cfg, f.env()), 0, f.out.String())
+	if !strings.Contains(f.read(e.knownHosts()), other) {
+		t.Fatal("pinning this server dropped another server's pin")
+	}
+
+	// The server now presents a different, real key.
+	rotated := filepath.Join(f.home, "rotated_host")
+	mustRun(t, f.home, "ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-f", rotated)
+	pub, err := os.ReadFile(rotated + ".pub")
+	must(t, err)
+	must(t, os.WriteFile(filepath.Join(f.state, "otherkey"), []byte("beads.example.com "+strings.Join(strings.Fields(string(pub))[:2], " ")+"\n"), 0o644))
+	newKey := fingerprints(string(pub))
+	old := f.cfg.Server.HostKey
+	f.cfg.Server.HostKey = newKey[0]
+	must(t, os.Remove(filepath.Join(f.state, "up")))
+
+	wantCode(t, Up(f.cfg, f.env()), 1, f.out.String())
+	if out := f.out.String(); !strings.Contains(out, "but you pinned "+old) || !strings.Contains(out, "--repin") {
+		t.Errorf("changed config key not refused with a way forward:\n%s", out)
+	}
+	if fileExists(filepath.Join(f.state, "up")) {
+		t.Error("tunnel opened to an unconfirmed key")
+	}
+
+	e = f.env()
+	e.Repin = true
+	wantCode(t, Up(f.cfg, e), 0, f.out.String())
+	kh := f.read(e.knownHosts())
+	if fp := fingerprints(kh); !strings.Contains(strings.Join(fp, " "), newKey[0]) || strings.Contains(strings.Join(fp, " "), old) {
+		t.Errorf("--repin did not replace the pin: %v", fp)
+	}
+	if !strings.Contains(kh, other) {
+		t.Error("--repin dropped another server's pin")
 	}
 }

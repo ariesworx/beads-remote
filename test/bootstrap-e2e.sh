@@ -85,6 +85,7 @@ expect "dolt answers on loopback" python3 -c "import socket; socket.create_conne
 IP=$(hostname -I 2>/dev/null | awk '{ print $1 }')
 if [ -n "$IP" ]; then refuse "dolt does not answer on $IP" python3 -c "import socket; socket.create_connection(('$IP', 3306), 2)"; fi
 refuse "root has no empty password" python3 -c "import pymysql; pymysql.connect(host='127.0.0.1', port=3306, user='root')"
+expect "logins cannot read server files" python3 -c "import pymysql; c = pymysql.connect(host='127.0.0.1', port=3306, user='beads', password=open('/etc/beads/db-password').read().strip()); cur = c.cursor(); cur.execute(\"SELECT LOAD_FILE('/etc/passwd')\"); assert cur.fetchone()[0] is None"
 expect "admin login works" python3 -c "import pymysql; pymysql.connect(host='127.0.0.1', port=3306, user='beads', password=open('/etc/beads/db-password').read().strip())"
 expect "secrets are root 0600" sh -c "[ \"\$(stat -c '%U %a' /etc/beads/db-password /etc/beads/root-password | sort -u)\" = 'root 600' ]"
 expect "data dir is dolt 0700" test "$(stat -c '%U %a' /var/lib/dolt)" = "dolt 700"

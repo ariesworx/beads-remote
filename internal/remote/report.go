@@ -20,6 +20,7 @@ type Env struct {
 	JSON     bool // one JSON document instead of lines, for agents
 	Verbose  bool // print passing lines too
 	Yes      bool // accept every default without asking
+	Repin    bool // accept a changed server host key in the config
 }
 
 // State lives outside the repository, per user.

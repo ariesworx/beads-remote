@@ -102,10 +102,19 @@ the server boots. See [`deploy/README.md`](deploy/README.md).
 - **A developer key can do exactly two things:** forward to `127.0.0.1:3306`
   and read its database password. Every key line is
   `command="cat <password file>",restrict,port-forwarding,permitopen="127.0.0.1:3306"`.
-  There is no shell, no other forward, no agent or X11 forwarding.
+  There is no shell, no other forward, no agent or X11 forwarding, and sshd's
+  `AllowTcpForwarding local` stops remote (`-R`) forwards (`server check` warns
+  if it is missing).
 - **One database per account.** Each database has its own Unix account and
   MySQL user, granted on that one schema only; it cannot list other databases.
-- **Revoking is deleting a key line.** The password grants nothing without a
+- **Database logins cannot touch the server's files.** Dolt otherwise lets any
+  login use `LOAD_FILE` and `INTO OUTFILE` whatever its grants; the bootstrap
+  sets `secure_file_priv`, and `server check` fails if a login can read a file.
+- **A changed host key in `remote.yaml` is refused** once you have pinned the
+  old one, so a pull request cannot quietly point developers at another
+  server. Confirm the new fingerprint with the admin, then `up --repin`.
+- **Revoking is deleting a key line**, chosen by exact fingerprint, key or
+  comment, never a substring. The password grants nothing without a
   key, so it need not change.
 - **Secrets stay out of argv and the repository.** The password is cached at
   `~/.config/beads-remote/<db>@<host>.pw` (0600) and written to bd's

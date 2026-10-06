@@ -83,7 +83,7 @@ PidFile $WORK/sshd.pid
 PasswordAuthentication no
 KbdInteractiveAuthentication no
 PermitRootLogin no
-AllowTcpForwarding yes
+AllowTcpForwarding local
 UsePAM no
 Include $ETC/sshd.d/*.conf
 CONF
@@ -125,6 +125,14 @@ br() { "$BIN" -C "$WORK/repo" "$@"; }
 
 # ── Server side ────────────────────────────────────────────────────────────
 refuse "server check fails before provisioning" br server check
+# Dolt's default lets any login read server files; provision must refuse it.
+refuse "provision refuses a Dolt that leaks files" br server provision
+expect "and says why" sh -c "'$BIN' -C '$WORK/repo' server provision | grep -q 'file access: .*can read files'"
+kill "$DOLT_PID"; wait "$DOLT_PID" 2>/dev/null || true
+printf 'listener:\n  host: 127.0.0.1\n  port: 3306\nsystem_variables:\n  secure_file_priv: /nonexistent-beads\n' > "$WORK/dolt.yaml"
+(cd "$WORK/dolt/data" && exec dolt sql-server --config "$WORK/dolt.yaml" >> "$WORK/dolt.log" 2>&1) &
+DOLT_PID=$!
+for _ in $(seq 50); do python3 -c "import socket; socket.create_connection(('127.0.0.1', 3306), 1)" 2>/dev/null && break; sleep 0.2; done
 expect "server provision" br server provision
 expect "server provision again is a no-op" br server provision
 expect "server check passes" br server check
@@ -179,6 +187,12 @@ c = pymysql.connect(host="127.0.0.1", port=3306, user="$DB", password=open(sys.a
 cur = c.cursor(); cur.execute("SHOW DATABASES")
 sys.exit(1 if "otherproject" in {r[0] for r in cur.fetchall()} else 0)
 PY
+expect "the database user cannot read server files" python3 - "/etc/$DB/db-password" <<PY
+import pymysql, sys
+c = pymysql.connect(host="127.0.0.1", port=3306, user="$DB", password=open(sys.argv[1]).read().strip())
+cur = c.cursor(); cur.execute("SELECT LOAD_FILE('/etc/passwd')")
+sys.exit(0 if cur.fetchone()[0] is None else 1)
+PY
 expect "password never printed" sh -c "! '$BIN' -C '$WORK/repo' check -v --json | grep -qF \"\$(cat /etc/$DB/db-password)\""
 
 # An older, looser key line is tightened by provision.
@@ -189,6 +203,8 @@ expect "key line forced again" grep -q '^command="cat /etc/beadse2e/db-password"
 
 # Revocation.
 expect "down" br down
+refuse "revoke by a shared substring is refused" br server revoke port-forwarding
+expect "and removed nothing" test "$(grep -c ssh-ed25519 "/home/$DB/.ssh/authorized_keys")" = 1
 expect "server revoke" br server revoke dev@e2e
 rm -f "$HOME/.config/beads-remote/$DB@127.0.0.1.pw"
 refuse "a revoked key cannot connect" br up
