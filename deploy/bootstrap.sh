@@ -93,12 +93,15 @@ cfg_dir: $DATA/cfg
 privilege_file: $DATA/cfg/privileges.db
 branch_control_file: $DATA/cfg/branch_control.db
 CONF
-# Dolt's metrics are opt-out.
-sudo -u dolt HOME="$DATA" dolt config --global --add metrics.disabled true >/dev/null 2>&1 || true
-sudo -u dolt HOME="$DATA" dolt config --global --get user.name >/dev/null 2>&1 ||
-  sudo -u dolt HOME="$DATA" dolt config --global --add user.name beads-server >/dev/null
-sudo -u dolt HOME="$DATA" dolt config --global --get user.email >/dev/null 2>&1 ||
-  sudo -u dolt HOME="$DATA" dolt config --global --add user.email beads-server@localhost >/dev/null
+# Dolt's metrics are opt-out. Run from its own home: Dolt looks for
+# databases in the working directory.
+(
+  cd "$DATA"
+  dc() { sudo -u dolt HOME="$DATA" dolt config --global "$@"; }
+  dc --add metrics.disabled true >/dev/null 2>&1 || true
+  dc --get user.name >/dev/null 2>&1 || dc --add user.name beads-server >/dev/null
+  dc --get user.email >/dev/null 2>&1 || dc --add user.email beads-server@localhost >/dev/null
+)
 
 cat > /etc/systemd/system/dolt.service <<'UNIT'
 [Unit]
@@ -199,6 +202,7 @@ if [ -f "$SSHD_USERS" ] && grep -q '^AllowUsers' "$SSHD_USERS"; then
 else
   printf '# Written by beads-remote; server provision adds database accounts.\nAllowUsers %s\n' "$ADMIN_USER" > "$SSHD_USERS"
 fi
+install -d -m 0755 /run/sshd   # sshd -t needs it; absent when sshd has not run yet
 sshd -t || die "sshd rejected the configuration; it was not reloaded"
 eff=$(sshd -T -C user="$ADMIN_USER",host=localhost,addr=127.0.0.1)
 for want in "passwordauthentication no" "permitrootlogin no" "kbdinteractiveauthentication no"; do
