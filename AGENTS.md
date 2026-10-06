@@ -36,7 +36,7 @@ a throwaway VM or container only, never on a workstation. CI runs all of it.
 
 ## Rules
 
-1. **Nothing organisation-specific** in code, tests or docs: no real host,
+1. **Nothing organization-specific** in code, tests or docs: no real host,
    fingerprint, path or database name. Use `beads.example.com` and invented
    values.
 2. **No secret in argv, logs, output or the repository.** Passwords travel on
@@ -57,6 +57,8 @@ a throwaway VM or container only, never on a workstation. CI runs all of it.
    use the `Env` it is given.
 7. **Shell:** `set -euo pipefail` (`server.sh` omits `-e` on purpose, so it
    can report every step), shellcheck-clean, and safe to re-run.
+8. **American English** in code, comments and docs: "organization",
+   "behavior", "color", "license", "-ize" endings.
 
 ## Git
 

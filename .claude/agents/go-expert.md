@@ -35,7 +35,7 @@ Check, in this order:
    `ConnectTimeout`. Nothing in `internal/` touches `os.Stdout`/`os.Stdin`;
    the MCP server depends on that, because stdout carries its protocol.
 5. **Concurrency.** Shared state behind a mutex or not shared. Goroutines
-   have an owner and an exit. Contexts are honoured where they are accepted.
+   have an owner and an exit. Contexts are honored where they are accepted.
    `go test -race` passes.
 6. **API and design.** Small exported surface; `internal/` stays internal.
    Types shared by two packages are defined once. Since Go 1.22 loop

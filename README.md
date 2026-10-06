@@ -54,7 +54,7 @@ exact command to send to the server admin.
 | 2 | usage error |
 
 `-v` also lists what passed, `--json` prints one document, `--no-color` or
-`NO_COLOR` turns colour off, and `-C DIR` runs against another repository.
+`NO_COLOR` turns color off, and `-C DIR` runs against another repository.
 
 **Every command is idempotent.** Running one again succeeds and changes
 nothing that is already right: `init` accepts an existing `remote.yaml` that
