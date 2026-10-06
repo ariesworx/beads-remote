@@ -64,6 +64,29 @@ rather than duplicates, `revoke` of a key that is already gone warns and
 succeeds, and `deploy/bootstrap.sh` rewrites, reloads and restarts only what
 changed. The tests run each command twice and compare the files it manages.
 
+## Agents: MCP server
+
+`beads-remote mcp` serves `status`, `check`, `up` and `down` to an MCP client
+over stdio. It runs on your machine as you, with the same key, pinned host key
+and cached password as the CLI, so there is nothing new to sign in to. Results
+are the same document as `--json`, and a failure comes back as a tool error
+carrying its fix.
+
+It deliberately offers nothing else: `setup` and `init` ask questions, `--repin`
+needs a person to confirm a fingerprint, and the `server` commands run as root
+on the server. Those stay at the terminal. A key with a passphrase must be in
+ssh-agent, as for `up`.
+
+In a repository, for Claude Code and other clients that start servers there,
+add to `.mcp.json`:
+
+```json
+{ "mcpServers": { "beads": { "command": "beads-remote", "args": ["mcp"] } } }
+```
+
+Clients that do not start in the repository (Claude desktop, say) need it
+named: `"args": ["-C", "/path/to/repo", "mcp"]`.
+
 ## Admin: add a database and developers
 
 Needs an SSH login to the server with passwordless sudo (`server.admin`).

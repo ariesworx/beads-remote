@@ -12,6 +12,7 @@
 set -euo pipefail
 
 BIN=$(cd "$(dirname "$1")" && pwd)/$(basename "$1")
+HERE=$(cd "$(dirname "$0")/.." && pwd)
 [ "$(id -u)" = 0 ] || { echo "run as root on a disposable machine" >&2; exit 2; }
 for t in dolt bd sshd sudo python3 git ssh-keygen; do command -v "$t" >/dev/null || { echo "missing: $t" >&2; exit 2; }; done
 for u in beadse2e beadsadmin; do ! id "$u" >/dev/null 2>&1 || { echo "account $u exists from an earlier run; remove it first" >&2; exit 2; }; done
@@ -161,6 +162,9 @@ expect "one key on the server" test "$(grep -c ssh-ed25519 "/home/$DB/.ssh/autho
 expect "setup" br setup --yes
 expect "check" br check
 expect "check --json says ok" sh -c "'$BIN' -C '$WORK/repo' check --json | python3 -c 'import json,sys; sys.exit(0 if json.load(sys.stdin)[\"ok\"] else 1)'"
+# The MCP server over real stdio answers with the same results as --json.
+expect "mcp: down, status, up, status over stdio" python3 "$HERE/test/mcp_client.py" "$BIN" "$WORK/repo" down=ok status=fail up=ok status=ok
+expect "and the tunnel is up after it" br status
 expect "bd creates an e2e- issue on the server" sh -c "cd '$WORK/repo' && bd create 'e2e round trip' -t task -p 4 --json | grep -q '\"id\": *\"e2e-'"
 expect "the issue is in the server database" python3 - "/etc/$DB/db-password" <<PY
 import pymysql, sys

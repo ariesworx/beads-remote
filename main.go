@@ -4,12 +4,15 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"io"
 	"os"
+	"os/signal"
 	"strings"
 
+	"github.com/ariesworx/beads-remote/internal/mcpserver"
 	"github.com/ariesworx/beads-remote/internal/remote"
 )
 
@@ -24,6 +27,7 @@ Developer:
   down                   close the tunnel
   status                 is the tunnel up? (exit 1 if not)
   check                  verify the whole setup, read-only
+  mcp                    serve status, check, up and down to an MCP client on stdio
 
 Server admin (needs ssh to server.admin with passwordless sudo):
   server provision       create or repair this repository's database, account and grants
@@ -91,6 +95,16 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		JSON:  *jsonOut, Verbose: *verbose, Yes: *yesAll, Repin: *repin,
 	}
 
+	if words[0] == "mcp" && len(words) == 1 {
+		// stdout carries the protocol from here on.
+		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+		defer stop()
+		if err := mcpserver.Serve(ctx, *dir, home, version, io.NopCloser(stdin), nopCloser{stdout}); err != nil && ctx.Err() == nil {
+			fmt.Fprintln(stderr, "beads-remote mcp:", err)
+			return 1
+		}
+		return 0
+	}
 	if words[0] == "init" {
 		env.RepoRoot = *dir
 		return remote.Init(*dir, env, *host, *database, *port)
@@ -138,3 +152,8 @@ func isTerminal(w io.Writer) bool {
 	fi, err := f.Stat()
 	return err == nil && fi.Mode()&os.ModeCharDevice != 0
 }
+
+// nopCloser keeps the MCP transport from closing the process's stdout.
+type nopCloser struct{ io.Writer }
+
+func (nopCloser) Close() error { return nil }
