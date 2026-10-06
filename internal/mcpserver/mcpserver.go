@@ -14,6 +14,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"regexp"
 	"strings"
 	"sync"
 
@@ -34,8 +35,8 @@ type server struct {
 func New(dir, home, version string) *mcp.Server {
 	s := &server{dir: dir, home: home}
 	srv := mcp.NewServer(&mcp.Implementation{Name: "beads-remote", Version: version}, &mcp.ServerOptions{
-		Instructions: "Connects this repository's bd (beads) to its shared Dolt server through an SSH tunnel. " +
-			"Call up before using bd; it is quick and safe to repeat. Every result lists each check, and every failure carries a fix.",
+		Instructions: "bd reaches this repository's shared beads server through an SSH tunnel. Call up before using bd. " +
+			"Results list only failures and warnings, each with a fix; ok with no results means all passed.",
 	})
 	no := false
 	tools := []struct {
@@ -44,22 +45,22 @@ func New(dir, home, version string) *mcp.Server {
 	}{
 		{&mcp.Tool{
 			Name:        "status",
-			Description: "Report whether the tunnel to the beads server is up.",
+			Description: "Is the tunnel to the beads server up? Changes nothing.",
 			Annotations: &mcp.ToolAnnotations{Title: "Tunnel status", ReadOnlyHint: true, IdempotentHint: true, OpenWorldHint: &no},
 		}, remote.Status},
 		{&mcp.Tool{
 			Name:        "check",
-			Description: "Check the whole client side without changing anything: bd, the SSH key, the pinned host key, the tunnel, the cached password, bd's credentials and metadata.",
+			Description: "Check bd, the SSH key, the pinned host key, the tunnel, the password and bd's config. Changes nothing.",
 			Annotations: &mcp.ToolAnnotations{Title: "Check setup", ReadOnlyHint: true, IdempotentHint: true, OpenWorldHint: &no},
 		}, remote.Check},
 		{&mcp.Tool{
 			Name:        "up",
-			Description: "Open the tunnel and repair the local setup bd needs. Quick when already up, and safe to repeat. Refuses a server host or host key that changed in remote.yaml; a person must confirm that with `beads-remote up --repin`.",
+			Description: "Open the tunnel and repair bd's local config. Safe to repeat. A changed server host key is refused until a person runs `beads-remote up --repin`.",
 			Annotations: &mcp.ToolAnnotations{Title: "Open tunnel", IdempotentHint: true, DestructiveHint: &no},
 		}, remote.Up},
 		{&mcp.Tool{
 			Name:        "down",
-			Description: "Close the tunnel. Succeeds when it is already closed.",
+			Description: "Close the tunnel. Safe to repeat.",
 			Annotations: &mcp.ToolAnnotations{Title: "Close tunnel", IdempotentHint: true, DestructiveHint: &no, OpenWorldHint: &no},
 		}, remote.Down},
 	}
@@ -87,7 +88,25 @@ func (s *server) call(run func(*remote.Config, remote.Env) int) (*mcp.CallToolRe
 	if err := json.Unmarshal(out.Bytes(), &r); err != nil {
 		return nil, remote.Report{}, fmt.Errorf("unreadable result: %w", err)
 	}
-	return &mcp.CallToolResult{IsError: !r.OK}, r, nil
+	return &mcp.CallToolResult{IsError: !r.OK}, trim(r), nil
+}
+
+// toolFix matches a fix that is one of this server's own tools.
+var toolFix = regexp.MustCompile(`^beads-remote (status|check|up|down)\b`)
+
+// trim keeps what a model must act on: passes are dropped, as at the
+// terminal without -v, and a fix that names a tool says to call it.
+func trim(r remote.Report) remote.Report {
+	kept := []remote.Result{}
+	for _, res := range r.Results {
+		if res.OK && !res.Warn {
+			continue
+		}
+		res.Fix = toolFix.ReplaceAllString(res.Fix, "call $1")
+		kept = append(kept, res)
+	}
+	r.Results = kept
+	return r
 }
 
 // Serve runs the server until the client closes the connection. Nothing else

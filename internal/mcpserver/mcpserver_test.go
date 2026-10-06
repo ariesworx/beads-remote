@@ -101,7 +101,31 @@ func TestStatusDown(t *testing.T) {
 		t.Fatalf("content is %T, want text", res.Content[0])
 	}
 	text := tc.Text
-	if !res.IsError || !strings.Contains(text, `"tunnel"`) || !strings.Contains(text, "beads-remote up") {
+	if !res.IsError || !strings.Contains(text, `"tunnel"`) || !strings.Contains(text, `"fix":"call up"`) {
 		t.Errorf("status with the tunnel down: isError=%v %s", res.IsError, text)
+	}
+}
+
+// Passes are dropped and a fix naming a tool says to call it; anything a
+// person must run is left as written.
+func TestTrim(t *testing.T) {
+	got := trim(remote.Report{Results: []remote.Result{
+		{Name: "bd installed", OK: true},
+		{Name: "routing", OK: true, Warn: true, Detail: "auto", Fix: "bd config unset routing.mode"},
+		{Name: "tunnel", Detail: "down", Fix: "beads-remote up"},
+		{Name: "prefix", Fix: "beads-remote up, then commit .beads/config.yaml"},
+		{Name: "key", Fix: "beads-remote setup"},
+		{Name: "pin", Fix: "beads-remote upgrade"},
+	}})
+	var fixes []string
+	for _, r := range got.Results {
+		fixes = append(fixes, r.Fix)
+	}
+	want := []string{"bd config unset routing.mode", "call up", "call up, then commit .beads/config.yaml", "beads-remote setup", "beads-remote upgrade"}
+	if !slices.Equal(fixes, want) {
+		t.Errorf("fixes = %q, want %q", fixes, want)
+	}
+	if r := trim(remote.Report{OK: true}); r.Results == nil {
+		t.Error("an all-pass report has null results; want []")
 	}
 }

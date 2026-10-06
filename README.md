@@ -8,7 +8,9 @@
 [![License](https://img.shields.io/github/license/ariesworx/beads-remote)](LICENSE)
 
 Connect a repository to its database on a shared [beads](https://github.com/gastownhall/beads)
-(`bd`) server over a pinned SSH tunnel, and provision that server.
+(`bd`) server over a pinned SSH tunnel, and provision that server. beads
+stores its issues in [Dolt](https://github.com/dolthub/dolt), a SQL database
+with Git-style version control; the server runs `dolt sql-server`.
 
 ```text
 your machine                              beads server   (firewall: 22/tcp only)
@@ -24,7 +26,8 @@ and `--json` gives agents a single document, so it fits into scripts and agent
 workflows.
 
 > beads-remote is an independent tool. It is not part of, or endorsed by,
-> the beads or Dolt projects.
+> the [beads](https://github.com/gastownhall/beads) or
+> [Dolt](https://github.com/dolthub/dolt) projects.
 
 ## Install
 
@@ -103,8 +106,9 @@ changed. The tests run each command twice and compare the files it manages.
 `beads-remote mcp` serves `status`, `check`, `up` and `down` to an MCP client
 over stdio. It runs on your machine as you, with the same key, pinned host key
 and cached password as the CLI, so there is nothing new to sign in to. Results
-are the same document as `--json`, and a failure comes back as a tool error
-carrying its fix.
+are the `--json` document trimmed to what needs acting on: failures and
+warnings only, each with its fix, and `ok` with an empty list when all passed.
+A failure is a tool error.
 
 It deliberately offers nothing else: `setup` and `init` ask questions, `--repin`
 needs a person to confirm a fingerprint, and the `server` commands run as root

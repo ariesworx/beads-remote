@@ -56,7 +56,7 @@ type Result struct {
 // Report is the document every command prints with --json.
 type Report struct {
 	OK      bool     `json:"ok" jsonschema:"true when every check passed"`
-	Results []Result `json:"results" jsonschema:"one entry per check or step, with a fix for each failure"`
+	Results []Result `json:"results" jsonschema:"checks and steps; each failure has a fix"`
 }
 
 // report collects results. Failures and warnings print as they happen;
