@@ -34,6 +34,40 @@ go install github.com/ariesworx/beads-remote@latest
 
 You also need `bd` and OpenSSH on your PATH.
 
+## Quick start
+
+Three cases, from nothing to an agent using bd.
+
+**The repository already has `.beads/remote.yaml`** (someone set it up):
+
+```sh
+go install github.com/ariesworx/beads-remote@latest
+beads-remote setup      # pick or create a key, pin the server, connect
+```
+
+If `setup` says the server does not know your key, send the admin the command
+it prints, wait for them to run it, then run `beads-remote up`. When
+`beads-remote check` ends with `beads ok`, `bd ready` works.
+
+**The repository has no `remote.yaml` yet** and the server exists: an admin
+runs `init` and `server provision` (see [Admin](#admin-add-a-database-and-developers)),
+commits `.beads/remote.yaml`, and developers follow the case above. The file
+holds no secrets:
+
+```yaml
+server:
+  host: beads.example.com
+  host_key: SHA256:…          # the server's ED25519 fingerprint, pinned
+  admin: you@beads.example.com # only for `server` commands
+database: myproject
+port: 3311                    # local end of the tunnel; one per repository
+```
+
+**There is no server yet:** see [Build a server](#build-a-server).
+
+Then give your agent the tunnel: add the MCP server (next section) and tell it
+to call `up` before using bd.
+
 ## Developer: connect a repository
 
 The repository carries `.beads/remote.yaml` (committed; no secrets). Then:
@@ -77,15 +111,27 @@ needs a person to confirm a fingerprint, and the `server` commands run as root
 on the server. Those stay at the terminal. A key with a passphrase must be in
 ssh-agent, as for `up`.
 
-In a repository, for Claude Code and other clients that start servers there,
-add to `.mcp.json`:
+Run `beads-remote setup` at a terminal first; the MCP server cannot answer its
+questions. Then register it with your client:
 
-```json
-{ "mcpServers": { "beads": { "command": "beads-remote", "args": ["mcp"] } } }
-```
+| Client | Configuration |
+|---|---|
+| Claude Code, per repository | `.mcp.json`: `{ "mcpServers": { "beads": { "command": "beads-remote", "args": ["mcp"] } } }`, or `claude mcp add --scope project beads -- beads-remote mcp` |
+| Codex CLI | `~/.codex/config.toml`: `[mcp_servers.beads]` with `command = "beads-remote"` and `args = ["mcp"]` |
+| Gemini CLI | `.gemini/settings.json`: the same `mcpServers` object as `.mcp.json` |
+| Claude desktop, other clients | Their MCP config, with the repository named: `"args": ["-C", "/path/to/repo", "mcp"]` |
 
-Clients that do not start in the repository (Claude desktop, say) need it
-named: `"args": ["-C", "/path/to/repo", "mcp"]`.
+Two things trip people up:
+
+- **PATH.** `go install` puts the binary in `$(go env GOPATH)/bin`. A client
+  launched from a dock or menu may not have that on its PATH; use the absolute
+  path as `command`.
+- **Working directory.** The server finds `.beads/remote.yaml` from the
+  directory it starts in. A client that starts servers elsewhere needs `-C`.
+
+To try it by hand, `beads-remote mcp` reads JSON-RPC on stdin; `test/mcp_client.py`
+drives it the way a client does. In Claude Code, `/mcp` shows whether `beads`
+connected and lists its four tools.
 
 ## Admin: add a database and developers
 

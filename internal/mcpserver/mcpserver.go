@@ -22,12 +22,6 @@ import (
 	"github.com/ariesworx/beads-remote/internal/remote"
 )
 
-// Report is every tool's output: the same document as `beads-remote --json`.
-type Report struct {
-	OK      bool            `json:"ok" jsonschema:"true when every check passed"`
-	Results []remote.Result `json:"results" jsonschema:"one entry per check or step, with a fix for each failure"`
-}
-
 type server struct {
 	dir  string
 	home string
@@ -70,28 +64,28 @@ func New(dir, home, version string) *mcp.Server {
 		}, remote.Down},
 	}
 	for _, t := range tools {
-		run := t.run
-		mcp.AddTool(srv, t.tool, func(_ context.Context, _ *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, Report, error) {
-			return s.call(run)
+		// Every tool's output is the same document as `beads-remote --json`.
+		mcp.AddTool(srv, t.tool, func(_ context.Context, _ *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, remote.Report, error) {
+			return s.call(t.run)
 		})
 	}
 	return srv
 }
 
-func (s *server) call(run func(*remote.Config, remote.Env) int) (*mcp.CallToolResult, Report, error) {
+func (s *server) call(run func(*remote.Config, remote.Env) int) (*mcp.CallToolResult, remote.Report, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	cfg, root, err := remote.Load(s.dir)
 	if err != nil {
-		r := Report{Results: []remote.Result{{Name: "config", Detail: err.Error(), Fix: "start the server in a repository with " + remote.ConfigFile}}}
+		r := remote.Report{Results: []remote.Result{{Name: "config", Detail: err.Error(), Fix: "start the server in a repository with " + remote.ConfigFile}}}
 		return &mcp.CallToolResult{IsError: true}, r, nil
 	}
 	var out bytes.Buffer
 	env := remote.Env{Home: s.home, RepoRoot: root, In: strings.NewReader(""), Out: &out, JSON: true}
 	run(cfg, env)
-	var r Report
+	var r remote.Report
 	if err := json.Unmarshal(out.Bytes(), &r); err != nil {
-		return nil, Report{}, fmt.Errorf("unreadable result: %w", err)
+		return nil, remote.Report{}, fmt.Errorf("unreadable result: %w", err)
 	}
 	return &mcp.CallToolResult{IsError: !r.OK}, r, nil
 }

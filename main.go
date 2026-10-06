@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"syscall"
 
 	"github.com/ariesworx/beads-remote/internal/mcpserver"
 	"github.com/ariesworx/beads-remote/internal/remote"
@@ -97,7 +98,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 
 	if words[0] == "mcp" && len(words) == 1 {
 		// stdout carries the protocol from here on.
-		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 		defer stop()
 		if err := mcpserver.Serve(ctx, *dir, home, version, io.NopCloser(stdin), nopCloser{stdout}); err != nil && ctx.Err() == nil {
 			fmt.Fprintln(stderr, "beads-remote mcp:", err)

@@ -10,6 +10,8 @@ import (
 	"testing"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/ariesworx/beads-remote/internal/remote"
 )
 
 func connect(t *testing.T, dir string) *mcp.ClientSession {
@@ -64,7 +66,7 @@ func TestNoConfig(t *testing.T) {
 	if !res.IsError {
 		t.Fatal("status outside a repository did not report an error")
 	}
-	var r Report
+	var r remote.Report
 	b, _ := json.Marshal(res.StructuredContent)
 	if err := json.Unmarshal(b, &r); err != nil {
 		t.Fatal(err)
@@ -91,7 +93,14 @@ func TestStatusDown(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	text := res.Content[0].(*mcp.TextContent).Text
+	if len(res.Content) == 0 {
+		t.Fatal("status returned no content")
+	}
+	tc, ok := res.Content[0].(*mcp.TextContent)
+	if !ok {
+		t.Fatalf("content is %T, want text", res.Content[0])
+	}
+	text := tc.Text
 	if !res.IsError || !strings.Contains(text, `"tunnel"`) || !strings.Contains(text, "beads-remote up") {
 		t.Errorf("status with the tunnel down: isError=%v %s", res.IsError, text)
 	}
