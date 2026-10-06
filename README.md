@@ -91,7 +91,7 @@ fingerprint for `remote.yaml` when it finishes.
 
 Or let OpenTofu build the whole thing on **DigitalOcean**, **Google Cloud** or
 **AWS**: the machine, a firewall, a backup bucket the server can write but not
-read, and a host key generated in advance so its fingerprint is known before
+read (on GCP and AWS; DigitalOcean keys are limited to the one bucket), and a host key generated in advance so its fingerprint is known before
 the server boots. See [`deploy/README.md`](deploy/README.md).
 
 ## Security model

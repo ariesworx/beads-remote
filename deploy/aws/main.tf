@@ -21,6 +21,17 @@ data "aws_vpc" "default" {
   default = true
 }
 
+# Not every zone offers every instance type (t4g is missing from some), so
+# only zones that offer this one are candidates.
+data "aws_ec2_instance_type_offerings" "zones" {
+  count         = var.subnet_id == "" ? 1 : 0
+  location_type = "availability-zone"
+  filter {
+    name   = "instance-type"
+    values = [var.instance_type]
+  }
+}
+
 data "aws_subnets" "default" {
   count = var.subnet_id == "" ? 1 : 0
   filter {
@@ -30,6 +41,10 @@ data "aws_subnets" "default" {
   filter {
     name   = "default-for-az"
     values = ["true"]
+  }
+  filter {
+    name   = "availability-zone"
+    values = data.aws_ec2_instance_type_offerings.zones[0].locations
   }
 }
 
@@ -85,6 +100,16 @@ resource "aws_s3_bucket_ownership_controls" "backups" {
   }
 }
 
+# PutObject can overwrite, and backup names are predictable, so a compromised
+# server could replace every archive with junk. Versioning keeps the
+# originals for as long as the retention below.
+resource "aws_s3_bucket_versioning" "backups" {
+  bucket = aws_s3_bucket.backups.id
+  versioning_configuration {
+    status = "Enabled"
+  }
+}
+
 resource "aws_s3_bucket_server_side_encryption_configuration" "backups" {
   bucket = aws_s3_bucket.backups.id
   rule {
@@ -108,6 +133,18 @@ resource "aws_s3_bucket_lifecycle_configuration" "backups" {
       expiration {
         days = rule.value
       }
+      noncurrent_version_expiration {
+        noncurrent_days = rule.value
+      }
+    }
+  }
+
+  rule {
+    id     = "delete-markers"
+    status = "Enabled"
+    filter {}
+    expiration {
+      expired_object_delete_marker = true
     }
   }
 
@@ -119,6 +156,8 @@ resource "aws_s3_bucket_lifecycle_configuration" "backups" {
       days_after_initiation = 7
     }
   }
+
+  depends_on = [aws_s3_bucket_versioning.backups]
 }
 
 resource "aws_s3_bucket_policy" "backups" {
@@ -190,17 +229,24 @@ module "server" {
     RCLONE_CONFIG_BACKUP_ENV_AUTH = "true"
     RCLONE_CONFIG_BACKUP_REGION   = var.region
     RCLONE_CONFIG_BACKUP_ACL      = "bucket-owner-full-control"
+    # The role can only PutObject: skip rclone's bucket check and its HEAD
+    # after each upload, which would be refused.
+    RCLONE_CONFIG_BACKUP_NO_CHECK_BUCKET = "true"
+    RCLONE_CONFIG_BACKUP_NO_HEAD         = "true"
   }
 }
 
 resource "aws_instance" "server" {
-  ami                     = data.aws_ami.ubuntu.id
-  instance_type           = var.instance_type
-  subnet_id               = local.subnet_id
-  vpc_security_group_ids  = [aws_security_group.server.id]
-  iam_instance_profile    = aws_iam_instance_profile.server.name
-  user_data               = module.server.cloud_init
-  disable_api_termination = true
+  ami           = data.aws_ami.ubuntu.id
+  instance_type = var.instance_type
+  subnet_id     = local.subnet_id
+  # Outbound access for cloud-init's downloads before the Elastic IP attaches,
+  # even in a subnet that does not assign public addresses.
+  associate_public_ip_address = true
+  vpc_security_group_ids      = [aws_security_group.server.id]
+  iam_instance_profile        = aws_iam_instance_profile.server.name
+  user_data                   = module.server.cloud_init
+  disable_api_termination     = true
 
   metadata_options {
     http_tokens                 = "required" # IMDSv2 only

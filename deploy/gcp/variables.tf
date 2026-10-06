@@ -9,12 +9,13 @@ variable "state_passphrase" {
 }
 
 variable "name" {
-  description = "Name for the droplet, firewall and bucket prefix."
+  description = "Name for the VM, firewall, service account and bucket prefix."
   type        = string
   default     = "beads"
   validation {
-    condition     = can(regex("^[a-z][a-z0-9-]{1,40}$", var.name))
-    error_message = "name: lowercase letters, digits and hyphens."
+    # "<name>-server" is the service account ID, which GCP caps at 30.
+    condition     = can(regex("^[a-z][a-z0-9-]{1,21}$", var.name))
+    error_message = "name: 2 to 22 lowercase letters, digits and hyphens."
   }
 }
 

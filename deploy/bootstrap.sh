@@ -58,8 +58,9 @@ for p in python3-pymysql ufw rclone unattended-upgrades curl ca-certificates; do
   dpkg -s "$p" >/dev/null 2>&1 || need+=("$p")
 done
 if [ ${#need[@]} -gt 0 ]; then
-  apt-get update -q
-  apt-get install -yq --no-install-recommends "${need[@]}"
+  # On first boot apt-daily may hold the lock; wait for it rather than fail.
+  apt-get -o DPkg::Lock::Timeout=600 update -q
+  apt-get -o DPkg::Lock::Timeout=600 install -yq --no-install-recommends "${need[@]}"
 fi
 say "packages"
 
@@ -122,6 +123,10 @@ ProtectHome=yes
 ReadWritePaths=/var/lib/dolt
 PrivateTmp=yes
 PrivateDevices=yes
+# Clients arrive over the ssh tunnel, so Dolt needs only loopback. This also
+# keeps it from the cloud metadata endpoint, which holds the host key.
+IPAddressDeny=any
+IPAddressAllow=localhost
 ProtectKernelTunables=yes
 ProtectKernelModules=yes
 ProtectControlGroups=yes
@@ -208,7 +213,10 @@ eff=$(sshd -T -C user="$ADMIN_USER",host=localhost,addr=127.0.0.1)
 for want in "passwordauthentication no" "permitrootlogin no" "kbdinteractiveauthentication no"; do
   grep -qx "$want" <<<"$eff" || die "sshd would still use '$(grep "^${want% *} " <<<"$eff")'; another drop-in overrides $SSHD_FIRST"
 done
-systemctl reload ssh 2>/dev/null || systemctl reload sshd
+# Ubuntu 24.04 starts sshd on the first connection, so on first boot it may
+# not be running yet: then there is nothing to reload, and it starts with
+# this configuration.
+systemctl try-reload-or-restart ssh.service 2>/dev/null || systemctl try-reload-or-restart sshd.service
 say "sshd: keys only, AllowUsers $(sed -n 's/^AllowUsers //p' "$SSHD_USERS")"
 
 # ── Firewall ────────────────────────────────────────────────────────────────
@@ -280,7 +288,7 @@ case "${1:-}" in
       mv "$stage/$db.sql" "$f"; chown root:root "$f"; chmod 0600 "$f"
       gzip -f "$f"
       upload "$f.gz" "dumps/$db"
-      prune "$db-"
+      prune "$db-2"   # the stamp's century; "$db-" alone would let a database named dolt prune dolt-fs-*
     done
     ;;
   *) echo "usage: dolt-backup.sh fs|dump" >&2; exit 2 ;;

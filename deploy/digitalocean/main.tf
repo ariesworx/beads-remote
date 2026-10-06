@@ -70,7 +70,21 @@ module "server" {
     RCLONE_CONFIG_BACKUP_ACL               = "private"
     RCLONE_CONFIG_BACKUP_ACCESS_KEY_ID     = digitalocean_spaces_key.backups.access_key
     RCLONE_CONFIG_BACKUP_SECRET_ACCESS_KEY = digitalocean_spaces_key.backups.secret_key
+    RCLONE_CONFIG_BACKUP_NO_CHECK_BUCKET   = "true"
   }
+}
+
+# Registering the admin key stops DigitalOcean from emailing a root password
+# that would work on the web console. Root ssh stays off (cloud-init, sshd).
+resource "digitalocean_ssh_key" "admin" {
+  name       = "${var.name}-${var.admin_user}"
+  public_key = trimspace(var.admin_ssh_public_key)
+}
+
+# The firewall attaches by tag and exists before the droplet, so the droplet
+# is never reachable without it.
+resource "digitalocean_tag" "server" {
+  name = "${var.name}-server"
 }
 
 resource "digitalocean_droplet" "server" {
@@ -82,18 +96,21 @@ resource "digitalocean_droplet" "server" {
   monitoring = true
   backups    = var.droplet_backups
   user_data  = module.server.cloud_init
-  tags       = [var.name, "beads"]
+  ssh_keys   = [digitalocean_ssh_key.admin.id]
+  tags       = [digitalocean_tag.server.id, "beads"]
+
+  depends_on = [digitalocean_firewall.server]
 
   # The server holds the data: never replace it because the image moved on
   # or cloud-init changed. Rebuild deliberately (tofu apply -replace=...).
   lifecycle {
-    ignore_changes = [image, user_data]
+    ignore_changes = [image, user_data, ssh_keys]
   }
 }
 
 resource "digitalocean_firewall" "server" {
-  name        = var.name
-  droplet_ids = [digitalocean_droplet.server.id]
+  name = var.name
+  tags = [digitalocean_tag.server.id]
 
   inbound_rule {
     protocol         = "tcp"

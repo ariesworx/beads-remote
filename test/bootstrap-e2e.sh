@@ -54,7 +54,7 @@ start() { [ -f $WORK/dolt.pid ] && kill -0 "\$(cat $WORK/dolt.pid)" 2>/dev/null 
   echo \$! > $WORK/dolt.pid; }
 stop() { [ -f $WORK/dolt.pid ] && kill "\$(cat $WORK/dolt.pid)" 2>/dev/null; while pgrep -x dolt >/dev/null; do sleep 0.2; done; rm -f $WORK/dolt.pid; }
 case "\$*" in
-  *"reload ssh"*|*"reload sshd"*) [ -f $WORK/sshd.pid ] && kill -HUP "\$(cat $WORK/sshd.pid)"; exit 0 ;;
+  *"reload ssh"*|*"reload sshd"*|*"reload-or-restart ssh"*) [ -f $WORK/sshd.pid ] && kill -HUP "\$(cat $WORK/sshd.pid)"; exit 0 ;;
   *"stop dolt"*) stop ;;
   *"restart dolt"*) stop; start ;;
   *"start dolt"*|*"enable --now dolt"|*"enable --now dolt "*) start ;;

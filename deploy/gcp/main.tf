@@ -56,8 +56,10 @@ module "server" {
   backup_remote        = "backup:${local.bucket}"
   backup_env = {
     RCLONE_CONFIG_BACKUP_TYPE               = "google cloud storage"
-    RCLONE_CONFIG_BACKUP_ENV_AUTH           = "true"
     RCLONE_CONFIG_BACKUP_BUCKET_POLICY_ONLY = "true"
+    # objectCreator cannot list, and rclone's bucket check lists. Credentials
+    # come from the VM's service account through the metadata server.
+    RCLONE_CONFIG_BACKUP_NO_CHECK_BUCKET = "true"
   }
 }
 
@@ -117,9 +119,25 @@ resource "google_compute_firewall" "ssh" {
   name          = "${var.name}-ssh"
   network       = var.network
   direction     = "INGRESS"
+  priority      = 1000
   source_ranges = local.ipv4_cidrs
   target_tags   = ["${var.name}-ssh"]
   allow {
+    protocol = "tcp"
+    ports    = ["22"]
+  }
+}
+
+# The default network's default-allow-ssh (priority 65534) opens 22 to the
+# world. This outranks it, so ssh_allowed_cidrs is the only way in.
+resource "google_compute_firewall" "ssh_deny_others" {
+  name          = "${var.name}-ssh-deny"
+  network       = var.network
+  direction     = "INGRESS"
+  priority      = 65000
+  source_ranges = ["0.0.0.0/0"]
+  target_tags   = ["${var.name}-ssh"]
+  deny {
     protocol = "tcp"
     ports    = ["22"]
   }

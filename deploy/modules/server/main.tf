@@ -64,7 +64,7 @@ locals {
     host_public_key  = trimspace(tls_private_key.host.public_key_openssh)
     backup_remote    = var.backup_remote
     backup_env_b64   = base64encode(local.backup_env)
-    bootstrap_b64    = base64encode(file("${path.module}/../../bootstrap.sh"))
+    bootstrap_gz_b64 = base64gzip(file("${path.module}/../../bootstrap.sh"))
   })
 }
 

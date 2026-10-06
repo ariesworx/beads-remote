@@ -9,7 +9,7 @@ variable "state_passphrase" {
 }
 
 variable "name" {
-  description = "Name for the droplet, firewall and bucket prefix."
+  description = "Name for the instance, security group, IAM role and bucket prefix."
   type        = string
   default     = "beads"
   validation {

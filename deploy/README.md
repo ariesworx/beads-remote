@@ -32,6 +32,19 @@ Lose the passphrase and you lose the ability to manage the stack (the server
 keeps running). For a team, put state in a remote backend as well; encryption
 applies there too.
 
+State is not the only copy. The cloud-init document carries the host private
+key, and on DigitalOcean the Spaces key too, and every cloud keeps user data
+for the life of the machine:
+
+| Who can read it | DigitalOcean | GCP | AWS |
+|---|---|---|---|
+| Processes on the server, via the metadata endpoint | any local process | any local process | any local process (IMDSv2) |
+| Cloud users without a shell on it | team members | anyone with `compute.instances.get` (Compute Viewer) | anyone with `ec2:DescribeInstanceAttribute` |
+
+On the server, Dolt is confined to loopback by its systemd unit, so a
+database login cannot reach the endpoint; developer keys can forward only to
+port 3306. Keep read access to the cloud project as narrow as access to state.
+
 ## Usage
 
 ```sh
@@ -62,7 +75,9 @@ Storage APIs enabled), and the standard AWS chain.
   protection. To rebuild, restore from backup onto a new server on purpose.
   To tear down, turn protection off first.
 - **The server can write backups but not read or delete them** (GCP, AWS). A
-  compromised server cannot erase its history. DigitalOcean's Spaces keys
+  compromised server cannot erase its history: on GCP it cannot overwrite an
+  object, and on AWS the bucket is versioned, so an overwritten backup keeps
+  its original for the same retention. DigitalOcean's Spaces keys
   cannot be write-only, so there the key is limited to the one bucket.
 - **Port 22 is open to the world by default** because developers move around.
   Keys are the only way in. If your team has fixed addresses, set

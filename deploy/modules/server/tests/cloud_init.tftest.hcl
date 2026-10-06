@@ -42,8 +42,16 @@ run "renders" {
     error_message = "fingerprint is not SHA256:<43 base64 chars>"
   }
   assert {
-    condition     = base64decode([for f in yamldecode(output.cloud_init).write_files : f.content if f.path == "/root/beads-bootstrap.sh"][0]) == file("${path.module}/../../bootstrap.sh")
+    condition     = [for f in yamldecode(output.cloud_init).write_files : f.content if f.path == "/root/beads-bootstrap.sh"][0] == base64gzip(file("${path.module}/../../bootstrap.sh"))
     error_message = "bootstrap.sh not embedded verbatim"
+  }
+  assert {
+    condition     = [for f in yamldecode(output.cloud_init).write_files : f.encoding if f.path == "/root/beads-bootstrap.sh"][0] == "gz+b64"
+    error_message = "bootstrap.sh must be gz+b64 so cloud-init decompresses it"
+  }
+  assert {
+    condition     = length(output.cloud_init) < 16384
+    error_message = "cloud-init must stay under EC2's 16 KiB user data limit"
   }
   assert {
     condition     = base64decode([for f in yamldecode(output.cloud_init).write_files : f.content if f.path == "/etc/beads/backup.env"][0]) == "RCLONE_CONFIG_BACKUP_TYPE=s3\n"
@@ -69,4 +77,20 @@ run "rejects_root_as_admin" {
     admin_user = "root"
   }
   expect_failures = [var.admin_user]
+}
+
+run "admin_key_comment_with_yaml_syntax" {
+  command = apply
+  variables {
+    admin_ssh_public_key = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl alice: work # laptop"
+    backup_env           = {}
+  }
+  assert {
+    condition     = yamldecode(output.cloud_init).users[0].ssh_authorized_keys[0] == var.admin_ssh_public_key
+    error_message = "a comment with YAML syntax broke the admin key"
+  }
+  assert {
+    condition     = [for f in yamldecode(output.cloud_init).write_files : f.content if f.path == "/etc/beads/backup.env"][0] == ""
+    error_message = "an empty backup.env must render as an empty string, not null"
+  }
 }

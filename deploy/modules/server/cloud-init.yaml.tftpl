@@ -9,7 +9,7 @@ users:
     sudo: "ALL=(ALL) NOPASSWD:ALL"
     lock_passwd: true
     ssh_authorized_keys:
-      - ${admin_key}
+      - ${jsonencode(admin_key)}
 
 disable_root: true
 ssh_pwauth: false
@@ -21,19 +21,20 @@ ssh_genkeytypes: []
 ssh_keys:
   ed25519_private: |
     ${indent(4, host_private_key)}
-  ed25519_public: ${host_public_key}
+  ed25519_public: ${jsonencode(host_public_key)}
 
 write_files:
   - path: /etc/beads/backup.env
     owner: root:root
     permissions: "0600"
     encoding: b64
-    content: ${backup_env_b64}
+    content: "${backup_env_b64}"
   - path: /root/beads-bootstrap.sh
     owner: root:root
     permissions: "0700"
-    encoding: b64
-    content: ${bootstrap_b64}
+    # Compressed: EC2 refuses user data over 16 KiB.
+    encoding: gz+b64
+    content: ${bootstrap_gz_b64}
 
 runcmd:
   - [chmod, "0700", /etc/beads]
