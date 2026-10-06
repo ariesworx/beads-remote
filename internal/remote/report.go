@@ -185,11 +185,11 @@ func writePrivate(path string, data []byte) error {
 	tmp := f.Name()
 	defer os.Remove(tmp)
 	if err := f.Chmod(0o600); err != nil {
-		f.Close()
+		_ = f.Close()
 		return err
 	}
 	if _, err := f.Write(data); err != nil {
-		f.Close()
+		_ = f.Close()
 		return err
 	}
 	if err := f.Close(); err != nil {

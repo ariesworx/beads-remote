@@ -38,12 +38,12 @@ func newFixture(t *testing.T) *fixture {
 	}
 	// The server's host key and the developer's key, both real.
 	hostKey := filepath.Join(dir, "host_ed25519")
-	run(dir, "", "ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-f", hostKey)
+	mustRun(t, dir, "ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-f", hostKey)
 	pub, _ := os.ReadFile(hostKey + ".pub")
 	f.hostLine = "beads.example.com " + strings.Join(strings.Fields(string(pub))[:2], " ")
 	fpr, _ := run(dir, "", "ssh-keygen", "-lf", hostKey+".pub")
 	devKey := filepath.Join(f.home, ".ssh", "id_ed25519")
-	run(dir, "", "ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-C", "dev@mac", "-f", devKey)
+	mustRun(t, dir, "ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-C", "dev@mac", "-f", devKey)
 
 	stub := func(name, body string) {
 		must(t, os.WriteFile(filepath.Join(dir, "bin", name), []byte("#!/bin/sh\n"+body), 0o755))
@@ -83,7 +83,7 @@ esac
 	t.Setenv("BEADS_CREDENTIALS_FILE", "")
 	t.Setenv("GIT_CONFIG_GLOBAL", filepath.Join(dir, "gitconfig"))
 	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
-	run(f.repo, "", "git", "init", "-q")
+	mustRun(t, f.repo, "git", "init", "-q")
 	must(t, os.Chmod(filepath.Join(f.repo, ".beads"), 0o755))
 
 	port := freePort(t)
@@ -110,6 +110,13 @@ func (f *fixture) unflag(name string) { _ = os.Remove(filepath.Join(f.state, nam
 func (f *fixture) read(p string) string {
 	b, _ := os.ReadFile(p)
 	return string(b)
+}
+
+func mustRun(t *testing.T, dir, name string, args ...string) {
+	t.Helper()
+	if _, err := run(dir, "", name, args...); err != nil {
+		t.Fatalf("%s: %v", name, err)
+	}
 }
 
 func must(t *testing.T, err error) {
@@ -356,7 +363,7 @@ func TestRepairs(t *testing.T) {
 func TestSetupChoosesKey(t *testing.T) {
 	f := newFixture(t)
 	other := filepath.Join(f.home, ".ssh", "work_rsa")
-	run(f.home, "", "ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-f", other)
+	mustRun(t, f.home, "ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-f", other)
 	e := f.env()
 	e.Yes = false
 	e.In = strings.NewReader("2\n")

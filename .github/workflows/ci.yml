@@ -5,20 +5,84 @@ on:
   pull_request:
 permissions:
   contents: read
+concurrency:
+  group: ci-${{ github.ref }}
+  # Superseded pull request runs are cancelled; runs on main always finish.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  DOLT_VERSION: 2.4.2
+  DOLT_SHA256: 5d95a271149dc6ea97f47157af7ba9a0df5e8d4e9bbac4d79c169f2faa3cfb9e
+  BD_VERSION: 1.2.2
+  BD_SHA256: 8140098a51d3b81d5548d1c5e6db1a2d9930e5d141efe2a4bff7d079c4d321e8
+
 jobs:
-  test:
+  lint:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-go@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
-      - name: gofmt
-        run: test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
-      - run: go vet ./...
-      - run: go test -race ./...
+      - uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
+        with:
+          version: v2.14.0
+      - name: govulncheck
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.8.0 ./...
       - name: shellcheck
         run: |
           shellcheck internal/remote/server.sh deploy/bootstrap.sh test/*.sh
           awk '/cat > \/usr\/local\/sbin\/dolt-backup.sh/{f=1;next} /^SCRIPT$/{f=0} f' deploy/bootstrap.sh > "$RUNNER_TEMP/dolt-backup.sh"
           shellcheck "$RUNNER_TEMP/dolt-backup.sh"
+
+  test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - run: go test -race -coverprofile=coverage.out ./...
+      - name: coverage
+        run: go tool cover -func=coverage.out | tail -1 | tee -a "$GITHUB_STEP_SUMMARY"
+
+  # Real Dolt, sshd and bd. The runner is disposable, which these tests need:
+  # they run as root, create accounts and change sshd configuration.
+  e2e:
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        suite: [e2e, bootstrap-e2e]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      # bootstrap-e2e leaves Dolt to deploy/bootstrap.sh, so its own pinned
+      # download and checksum are tested too.
+      - name: Install dolt, bd and sshd
+        env:
+          SUITE: ${{ matrix.suite }}
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -yq --no-install-recommends openssh-server python3-pymysql
+          sudo systemctl disable --now ssh.socket ssh.service mysql.service 2>/dev/null || true
+          cd "$RUNNER_TEMP"
+          if [ "$SUITE" = e2e ]; then
+            curl -fsSL -o dolt.tgz "https://github.com/dolthub/dolt/releases/download/v${DOLT_VERSION}/dolt-linux-amd64.tar.gz"
+            echo "${DOLT_SHA256}  dolt.tgz" | sha256sum -c -
+            tar xzf dolt.tgz && sudo install -m 0755 dolt-linux-amd64/bin/dolt /usr/local/bin/dolt
+            sudo HOME=/root dolt config --global --add metrics.disabled true
+          fi
+          curl -fsSL -o bd.tgz "https://github.com/gastownhall/beads/releases/download/v${BD_VERSION}/beads_${BD_VERSION}_linux_amd64.tar.gz"
+          echo "${BD_SHA256}  bd.tgz" | sha256sum -c -
+          mkdir bd && tar xzf bd.tgz -C bd && sudo install -m 0755 "$(find bd -type f -name bd | head -1)" /usr/local/bin/bd
+      - run: go build -o beads-remote .
+      - run: sudo env "PATH=$PATH" test/${{ matrix.suite }}.sh ./beads-remote

@@ -1,5 +1,12 @@
 # beads-remote
 
+[![ci](https://github.com/ariesworx/beads-remote/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/ariesworx/beads-remote/actions/workflows/ci.yml?query=branch%3Amain)
+[![Go Report Card](https://goreportcard.com/badge/github.com/ariesworx/beads-remote)](https://goreportcard.com/report/github.com/ariesworx/beads-remote)
+[![Go Reference](https://pkg.go.dev/badge/github.com/ariesworx/beads-remote.svg)](https://pkg.go.dev/github.com/ariesworx/beads-remote)
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/ariesworx/beads-remote/badge)](https://scorecard.dev/viewer/?uri=github.com/ariesworx/beads-remote)
+[![Go version](https://img.shields.io/github/go-mod/go-version/ariesworx/beads-remote)](go.mod)
+[![License](https://img.shields.io/github/license/ariesworx/beads-remote)](LICENSE)
+
 Connect a repository to its database on a shared [beads](https://github.com/gastownhall/beads)
 (`bd`) server over a pinned SSH tunnel, and provision that server.
 
@@ -106,13 +113,15 @@ Report vulnerabilities privately: see [SECURITY.md](SECURITY.md).
 ## Develop
 
 ```sh
+golangci-lint run ./...                    # errcheck, vet, staticcheck, gosec and more (.golangci.yml)
 go test ./...                              # unit tests with stub ssh and bd
 sudo test/e2e.sh ./beads-remote            # real Dolt, sshd and bd (disposable machine)
 sudo test/bootstrap-e2e.sh ./beads-remote  # deploy/bootstrap.sh, then the CLI against it
 ```
 
 Both end-to-end tests need root and create accounts, so run them in a throwaway
-VM or container. See [CONTRIBUTING.md](CONTRIBUTING.md).
+VM or container. CI runs all of it on every pull request, plus `govulncheck`,
+shellcheck, and a weekly OpenSSF Scorecard; the badges above show the result. See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 
