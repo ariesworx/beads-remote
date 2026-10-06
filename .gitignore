@@ -1,0 +1,9 @@
+/beads-remote
+/dist/
+*.tfstate
+*.tfstate.*
+.terraform/
+.terraform.lock.hcl.bak
+*.tfvars
+!*.tfvars.example
+crash.log
